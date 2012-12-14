@@ -10,6 +10,11 @@
  * operations. You get only read-only files and the option to change their size.
  */
 
+#ifdef linux
+/* For pread()/pwrite() */
+#define _XOPEN_SOURCE 500
+#endif
+
 #define FUSE_USE_VERSION 26
 #include <fuse.h>
 
@@ -24,7 +29,9 @@
 
 struct file_size {
 	char path[MAXPATHLEN];
-	int size;
+	off_t size;
+	char *mhash;
+	char *mbinmap;
 	UT_hash_handle hh;
 };
 
@@ -56,6 +63,15 @@ int l_getattr(const char *path, struct stat *stbuf)
 
 	/* We only actually care about the size. */
 	struct file_size *file_size;
+	
+	/* DEBUG */
+	//struct file_size *files = L_DATA->file_to_size;
+	//struct file_size *f, *tmp;
+	//printf("iterating files:\n");
+	//HASH_ITER(hh, files, f, tmp) {
+		//printf("%s %ld %ld\n", f->path, f->size, &(f->size));
+	//}
+	
 	HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
 	if (file_size == NULL) {
 		return -ENOENT;
@@ -68,9 +84,9 @@ int l_getattr(const char *path, struct stat *stbuf)
 		stbuf->st_gid = getgid();
 		stbuf->st_rdev = 0;
 		stbuf->st_blksize = 0;
-		stbuf->st_atim = zero;
-		stbuf->st_mtim = zero;
-		stbuf->st_ctim = zero;
+		stbuf->st_atime = 0;//zero;
+		stbuf->st_mtime = 0;//zero;
+		stbuf->st_ctime = 0;//zero;
 		stbuf->st_size = file_size->size;
 		stbuf->st_blocks = stbuf->st_size / 512;
 	}
@@ -142,8 +158,8 @@ int l_chown(const char *path, uid_t owner, gid_t group)
  */
 int l_truncate(const char *path, off_t length)
 {
+	//printf("in l_truncate: length=%ld\n", length);
 	/* TODO(vladum): Check for max size? */
-
 	struct file_size *file_size;
 	HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
 	if (file_size == NULL) {
@@ -151,6 +167,16 @@ int l_truncate(const char *path, off_t length)
 		return -ENOENT;
 	} else {
 		file_size->size = length;
+		
+		if (strcmp(path + strlen(path) - 6, ".mhash") == 0) {
+			/* Allocate space for mhash file. */
+			file_size->mhash = (char *)realloc(file_size->mhash, file_size->size);
+		} else if (strcmp(path + strlen(path) - 8, ".mbinmap") == 0) {
+			/* Allocate space for mhash file. */
+			file_size->mbinmap = (char *)realloc(file_size->mbinmap, file_size->size);
+		}
+		
+		//printf("len = %ld, size = %ld pointer = %ld\n", length, file_size->size, &(file_size->size));
 		return 0;
 	}
 }
@@ -175,7 +201,7 @@ int l_open(const char *path, struct fuse_file_info *fi)
 		/* If O_TRUNC set the size to 0. */
 		if (fi->flags & O_TRUNC)
 			file_size->size = 0;
-
+		printf("returning 0...\n");
 		/* This is it. We don't care about access rights. */
 		return 0;
 	}
@@ -193,6 +219,8 @@ int l_open(const char *path, struct fuse_file_info *fi)
 int l_read(const char *path, char *buf, size_t size, off_t offset,
 	struct fuse_file_info *fi)
 {
+	printf ("l_read begin: %s %ld b from %ld\n", path, size, offset);
+
 	struct file_size *file_size;
 	HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
 	if (file_size == NULL) {
@@ -200,17 +228,43 @@ int l_read(const char *path, char *buf, size_t size, off_t offset,
 		return -ENOENT;
 	}
 
-	int i, j;
-	for (i = 0; i < size; i++) {
-		if (offset + i >= file_size->size) {
-			/* Fill remaining buffer with 0s. */
-			for (j = i; j < size; j++)
-				buf[j] = 0x00;
+	if (strcmp(path + strlen(path) - 6, ".mhash") == 0) {
+		if (file_size->mhash == NULL)
+			return 0;
+		
+		/* Read hashes from memory. */
+		int i;
+		
+		for (i = 0; i < size; i++)
+			buf[i] = file_size->mhash[offset + i];
+		
+		printf ("l_read end: %s %ld b read\n", path, i);
+		return size;
+	} else if (strcmp(path + strlen(path) - 8, ".mbinmap") == 0) {
+		if (file_size->mbinmap == NULL)
+			return 0;
+		
+		/* Read bins from memory. */
+		int i;
+		
+		for (i = 0; i < size; i++)
+			buf[i] = file_size->mbinmap[offset + i];
 
-			/* Return bytes read so far. */
-			return i;
-		} else {
-			buf[i] = 0xFE;
+		printf ("l_read end: %s %ld b read\n", path, i);
+		return size;
+	} else {
+		int i, j;
+		for (i = 0; i < size; i++) {
+			if (offset + i >= file_size->size) {
+				/* Fill remaining buffer with 0s. */
+				for (j = i; j < size; j++)
+					buf[j] = 0x00;
+
+				/* Return bytes read so far. */
+				return i;
+			} else {
+				buf[i] = 0xFE;
+			}
 		}
 	}
 
@@ -221,7 +275,54 @@ int l_read(const char *path, char *buf, size_t size, off_t offset,
 int l_write(const char *path, const char *buf, size_t size, off_t offset,
 	struct fuse_file_info *fi)
 {
-	return -ENOSYS;
+	printf ("l_write begin: %s %ld b at %ld\n", path, size, offset);
+	/* LFS only accepts writes to the .mhash file. */
+	if (strcmp(path + strlen(path) - 6, ".mhash") == 0) {
+		struct file_size *file_size;
+		HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
+		if (file_size == NULL) {
+			/* File does not exist. */
+			return -ENOENT;
+		}
+		
+		if (file_size->size < offset + size) {
+			/* File has to be resized to accomodate new data. */
+			file_size->mhash = (char *)realloc(file_size->mhash, offset + size);
+			file_size->size = offset + size;
+		}
+
+		int i;
+		for (i = 0; i < size; i++) {
+			file_size->mhash[offset + i] = buf[i];
+		}
+		
+		printf ("l_write end: %s %ld b written\n", path, i);
+		return size;
+	} else if (strcmp(path + strlen(path) - 8, ".mbinmap") == 0) {
+		struct file_size *file_size;
+		HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
+		if (file_size == NULL) {
+			/* File does not exist. */
+			return -ENOENT;
+		}
+		
+		if (file_size->size < offset + size) {
+			/* File has to be resized to accomodate new data. */
+			file_size->mbinmap = (char *)realloc(file_size->mbinmap,
+			                                     offset + size);
+			file_size->size = offset + size;
+		}
+
+		int i;
+		for (i = 0; i < size; i++) {
+			file_size->mbinmap[offset + i] = buf[i];
+		}
+		
+		printf ("l_write end: %s %ld b written\n", path, i);
+		return size;
+	} else {
+		return -ENOSYS;
+	}
 }
 
 int l_statfs(const char *path, struct statvfs *s)
@@ -269,7 +370,7 @@ int l_removexattr(const char *path, const char *list)
 
 int l_opendir(const char *path, struct fuse_file_info *fi)
 {
-	fprintf(stderr, "in l_opendir: path=%s\n", path);
+	//fprintf(stderr, "in l_opendir: path=%s\n", path);
 
 	/* We only have one dir - the root. */
 	if (strcmp(path, "/") == 0)
@@ -359,6 +460,8 @@ int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 
 	/* Reset size. */
 	file_size->size = 0;
+	file_size->mhash = NULL;
+	file_size->mbinmap = NULL;
 
 	return fi->fh;
 }
@@ -437,22 +540,22 @@ struct fuse_operations l_ops = {
 int main(int argc, char *argv[])
 {
 	if ((getuid() == 0) || (geteuid() == 0)) {
-		fprintf(stderr,
-			"Cannot mount LFS as root because it is not secure.\n");
+		//fprintf(stderr,
+		//	"Cannot mount LFS as root because it is not secure.\n");
 		return 1;
 	}
 
 	/* Check command line. */
 	if (argc < 2) {
-		fprintf(stderr,
-			"Usage:\n\tlfs [FUSE and mount options] mountpoint\n");
+		//fprintf(stderr,
+		//	"Usage:\n\tlfs [FUSE and mount options] mountpoint\n");
 		return 1;
 	}
 
 	struct l_state *l_data;
 	l_data = malloc(sizeof(struct l_state));
 	if (l_data == NULL) {
-		fprintf(stderr, "Cannot allocate LFS state structure.\n");
+		//fprintf(stderr, "Cannot allocate LFS state structure.\n");
 		return 1;
 	}
 
