@@ -1,0 +1,10 @@
+#!/usr/bin/expect -f
+
+set CMD [lindex $argv 0]
+set STRING [lindex $argv 1]
+set PID [spawn bash -c $CMD]
+expect $STRING {
+	spawn sleep 2 
+	exec kill -9 $PID
+}
+
