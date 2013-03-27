@@ -21,25 +21,38 @@
 #include <errno.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <stdio.h>
+#include <libgen.h>
+#include <bsd/string.h>
 
 #include "uthash.h"
 
 #define MAXPATHLEN 65565
+#define MAXMETAPATHLEN 65565
 
 struct file_size {
 	char path[MAXPATHLEN];
 	off_t size;
 	char *mhash;
 	char *mbinmap;
+	int realfd;
 	UT_hash_handle hh;
 };
 
 struct l_state {
 	struct file_size *file_to_size; /* hash table holding sizes */
+	unsigned char realmeta;
+	char metapath[MAXMETAPATHLEN];
 };
 
 #define L_DATA ((struct l_state *) fuse_get_context()->private_data)
+
+static inline char *gnu_basename(char *path)
+{
+	char *base = strrchr(path, '/');
+	return base ? base+1 : path;
+}
 
 /*
  * Returns a file's attributes.
@@ -63,7 +76,7 @@ int l_getattr(const char *path, struct stat *stbuf)
 
 	/* We only actually care about the size. */
 	struct file_size *file_size;
-	
+
 	/* DEBUG */
 	//struct file_size *files = L_DATA->file_to_size;
 	//struct file_size *f, *tmp;
@@ -71,11 +84,26 @@ int l_getattr(const char *path, struct stat *stbuf)
 	//HASH_ITER(hh, files, f, tmp) {
 		//printf("%s %ld %ld\n", f->path, f->size, &(f->size));
 	//}
-	
+
 	HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
 	if (file_size == NULL) {
 		return -ENOENT;
 	} else {
+		if ((L_DATA->realmeta == 1) &&
+			(strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
+			strcmp(path + strlen(path) - 8, ".mbinmap") == 0)) {
+			// Delegating to real filesystem for meta files.
+			char *pathcopy = strdup(path);
+			char *bn = gnu_basename(pathcopy);
+			char realpath[MAXPATHLEN];
+			snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metapath, bn);
+			int r = stat(realpath, stbuf);
+			fprintf(stderr, "%d\n", r);
+			free(pathcopy);
+
+			return r;
+		}
+
 		stbuf->st_dev = 0;
 		stbuf->st_ino = 0;
 		stbuf->st_mode = S_IFREG | S_IRWXU | S_IRWXG | S_IRWXO;
@@ -158,6 +186,20 @@ int l_chown(const char *path, uid_t owner, gid_t group)
  */
 int l_truncate(const char *path, off_t length)
 {
+	if ((L_DATA->realmeta == 1) &&
+		(strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
+		strcmp(path + strlen(path) - 8, ".mbinmap") == 0)) {
+		// Delegating to real filesystem for meta files.
+		char *pathcopy = strdup(path);
+		char *bn = gnu_basename(pathcopy);
+		char realpath[MAXPATHLEN];
+		snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metapath, bn);
+		int r = truncate(realpath, length);
+		free(pathcopy);
+
+		return r;
+	}
+
 	//printf("in l_truncate: length=%ld\n", length);
 	/* TODO(vladum): Check for max size? */
 	struct file_size *file_size;
@@ -167,7 +209,7 @@ int l_truncate(const char *path, off_t length)
 		return -ENOENT;
 	} else {
 		file_size->size = length;
-		
+
 		if (strcmp(path + strlen(path) - 6, ".mhash") == 0) {
 			/* Allocate space for mhash file. */
 			file_size->mhash = (char *)realloc(file_size->mhash, file_size->size);
@@ -175,7 +217,7 @@ int l_truncate(const char *path, off_t length)
 			/* Allocate space for mhash file. */
 			file_size->mbinmap = (char *)realloc(file_size->mbinmap, file_size->size);
 		}
-		
+
 		//printf("len = %ld, size = %ld pointer = %ld\n", length, file_size->size, &(file_size->size));
 		return 0;
 	}
@@ -193,11 +235,26 @@ int l_truncate(const char *path, off_t length)
 int l_open(const char *path, struct fuse_file_info *fi)
 {
 	struct file_size *file_size;
+
 	HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
 	if (file_size == NULL) {
 		/* File does not exist. */
 		return -ENOENT;
 	} else {
+		if ((L_DATA->realmeta == 1) &&
+			(strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
+			strcmp(path + strlen(path) - 8, ".mbinmap") == 0)) {
+			// Delegating to real filesystem for meta files.
+			// Nothing I guess (except access rights)...
+			char *pathcopy = strdup(path);
+			char *bn = gnu_basename(pathcopy);
+			char realpath[MAXPATHLEN];
+			snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metapath, bn);
+			fprintf(stderr, "opening real file %s\n", realpath);
+			file_size->realfd = open(realpath, fi->flags);
+			free(pathcopy);
+			return 0;
+		}
 		/* If O_TRUNC set the size to 0. */
 		if (fi->flags & O_TRUNC)
 			file_size->size = 0;
@@ -228,29 +285,37 @@ int l_read(const char *path, char *buf, size_t size, off_t offset,
 		return -ENOENT;
 	}
 
+	if ((L_DATA->realmeta == 1) &&
+		(strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
+		strcmp(path + strlen(path) - 8, ".mbinmap") == 0)) {
+		// Delegating to real filesystem for meta files.
+		lseek(file_size->realfd, offset, SEEK_SET);
+		return read(file_size->realfd, buf, size);
+	}
+
 	if (strcmp(path + strlen(path) - 6, ".mhash") == 0) {
 		if (file_size->mhash == NULL)
 			return 0;
-		
+
 		/* Read hashes from memory. */
 		int i;
-		
+
 		for (i = 0; i < size; i++)
 			buf[i] = file_size->mhash[offset + i];
-		
-		printf ("l_read end: %s %ld b read\n", path, i);
+
+		printf ("l_read end: %s %d b read\n", path, i);
 		return size;
 	} else if (strcmp(path + strlen(path) - 8, ".mbinmap") == 0) {
 		if (file_size->mbinmap == NULL)
 			return 0;
-		
+
 		/* Read bins from memory. */
 		int i;
-		
+
 		for (i = 0; i < size; i++)
 			buf[i] = file_size->mbinmap[offset + i];
 
-		printf ("l_read end: %s %ld b read\n", path, i);
+		printf ("l_read end: %s %d b read\n", path, i);
 		return size;
 	} else {
 		int i, j;
@@ -276,6 +341,27 @@ int l_write(const char *path, const char *buf, size_t size, off_t offset,
 	struct fuse_file_info *fi)
 {
 	printf ("l_write begin: %s %ld b at %ld\n", path, size, offset);
+
+	if ((L_DATA->realmeta == 1) &&
+		(strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
+		strcmp(path + strlen(path) - 8, ".mbinmap") == 0)) {
+		struct file_size *file_size;
+		HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
+		if (file_size == NULL) {
+			/* File does not exist. */
+			return -ENOENT;
+		}
+
+		// Delegating to real filesystem for meta files.
+		fprintf(stderr, "writing to real fd %d\n", file_size->realfd);
+		//int x = lseek(file_size->realfd, offset, SEEK_SET);
+		//fprintf(stderr, "lseek: %d %s\n", x, strerror(errno));
+
+		int r = write(file_size->realfd, buf, size);
+		fprintf(stderr, "wrote %d bytes to real file\n", r);
+		return r;
+	}
+
 	/* LFS only accepts writes to the .mhash file. */
 	if (strcmp(path + strlen(path) - 6, ".mhash") == 0) {
 		struct file_size *file_size;
@@ -284,7 +370,7 @@ int l_write(const char *path, const char *buf, size_t size, off_t offset,
 			/* File does not exist. */
 			return -ENOENT;
 		}
-		
+
 		if (file_size->size < offset + size) {
 			/* File has to be resized to accomodate new data. */
 			file_size->mhash = (char *)realloc(file_size->mhash, offset + size);
@@ -295,8 +381,8 @@ int l_write(const char *path, const char *buf, size_t size, off_t offset,
 		for (i = 0; i < size; i++) {
 			file_size->mhash[offset + i] = buf[i];
 		}
-		
-		printf ("l_write end: %s %ld b written\n", path, i);
+
+		printf ("l_write end: %s %d b written\n", path, i);
 		return size;
 	} else if (strcmp(path + strlen(path) - 8, ".mbinmap") == 0) {
 		struct file_size *file_size;
@@ -305,7 +391,7 @@ int l_write(const char *path, const char *buf, size_t size, off_t offset,
 			/* File does not exist. */
 			return -ENOENT;
 		}
-		
+
 		if (file_size->size < offset + size) {
 			/* File has to be resized to accomodate new data. */
 			file_size->mbinmap = (char *)realloc(file_size->mbinmap,
@@ -317,8 +403,8 @@ int l_write(const char *path, const char *buf, size_t size, off_t offset,
 		for (i = 0; i < size; i++) {
 			file_size->mbinmap[offset + i] = buf[i];
 		}
-		
-		printf ("l_write end: %s %ld b written\n", path, i);
+
+		printf ("l_write end: %s %d b written\n", path, i);
 		return size;
 	} else {
 		return -ENOSYS;
@@ -338,6 +424,20 @@ int l_flush(const char *path, struct fuse_file_info *fi)
 
 int l_release(const char *path, struct fuse_file_info *fi)
 {
+	struct file_size *file_size;
+	HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
+	if (file_size == NULL) {
+		/* File does not exist. */
+		return -ENOENT;
+	}
+	if ((L_DATA->realmeta == 1) &&
+		(strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
+		strcmp(path + strlen(path) - 8, ".mbinmap") == 0)) {
+		// Delegating to real filesystem for meta files.
+		fprintf(stderr, "closing real fd %d\n", file_size->realfd);
+		return close(file_size->realfd);
+	}
+
 	/* Nothing to do for release() and the return value is ignored. */
 	return 0;
 }
@@ -411,6 +511,7 @@ int l_fsyncdir(const char *path, int isdatasync, struct fuse_file_info *fi)
  */
 void *l_init(struct fuse_conn_info *conn)
 {
+	fprintf(stderr, "l_init\n");
 	/* Just return the hashtable. */
 	return L_DATA;
 }
@@ -425,6 +526,9 @@ void l_destroy(void *userdata)
 
 	/* Remove all files in the hashtable. */
 	HASH_ITER(hh, files, f, tmp) {
+		if (f->realfd != -1) {
+			close(f->realfd);
+		}
 		HASH_DEL(files, f);
 		free(f);
 	}
@@ -445,11 +549,37 @@ int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
 	struct file_size *file_size;
 
+	fprintf(stderr, "l_create: file is %s\n", path);
+
 	HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
 	if (file_size == NULL) {
 		file_size = (struct file_size *)malloc(sizeof(*file_size));
 		file_size->size = 0;
 		strcpy(file_size->path, path);
+
+		if ((L_DATA->realmeta == 1) &&
+			(strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
+			strcmp(path + strlen(path) - 8, ".mbinmap") == 0)) {
+			// Delegating to real filesystem for meta files.
+			char *pathcopy = strdup(path);
+			char *bn = gnu_basename(pathcopy);
+			char realpath[MAXPATHLEN];
+			snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metapath, bn);
+			fprintf(stderr, "creating real file %s\n", realpath);
+			free(pathcopy);
+			int fd;
+			/* TODO(vladum): Remove | O_RDWR hask. */
+			if ((fd = open(realpath, fi->flags | O_RDWR, mode) != -1)) {
+				HASH_ADD_STR(L_DATA->file_to_size, path, file_size);
+				file_size->realfd = fd;
+				//write(fd, "test\n", 5);
+				//fprintf(stderr, "write ok in fd %d\n", fd);
+				return fi->fh;
+			} else {
+				return -1;
+			}
+		}
+
 		HASH_ADD_STR(L_DATA->file_to_size, path, file_size);
 	} else {
 		if ((fi->flags & O_CREAT) && (fi->flags & O_EXCL)) {
@@ -557,6 +687,17 @@ int main(int argc, char *argv[])
 	if (l_data == NULL) {
 		//fprintf(stderr, "Cannot allocate LFS state structure.\n");
 		return 1;
+	}
+
+	if (argc > 2) {
+		// We are using a real fs location for meta files.
+		l_data->realmeta = 1;
+		// TODO(vladum): Check if provided string is actually a directory.
+		strlcpy(l_data->metapath, argv[argc - 1], sizeof(l_data->metapath));
+		argv[argc - 1] = NULL;
+		argc -= 1;
+	} else {
+		l_data->realmeta = 0;
 	}
 
 	/* FUSE */
