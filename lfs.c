@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <libgen.h>
 #include <bsd/string.h>
+#include <attr/xattr.h>
 
 #include "uthash.h"
 
@@ -65,6 +66,8 @@ static inline char *gnu_basename(char *path)
  */
 int l_getattr(const char *path, struct stat *stbuf)
 {
+	fprintf(stderr, "l_getattr: file is %s\n", path);
+
 	struct timespec zero = {.tv_sec = 0, .tv_nsec = 0};
 
 	if (strcmp(path, "/") == 0) {
@@ -125,16 +128,22 @@ int l_getattr(const char *path, struct stat *stbuf)
 
 int l_readlink(const char *path, char *link, size_t size)
 {
+	fprintf(stderr, "l_readlink: file is %s\n", path);
+
 	return -ENOSYS;
 }
 
 int l_mknod(const char *path, mode_t mode, dev_t dev)
 {
+	fprintf(stderr, "l_mknod: file is %s\n", path);
+
 	return -ENOSYS;
 }
 
 int l_mkdir(const char *path, mode_t mode)
 {
+	fprintf(stderr, "l_mkdir: file is %s\n", path);
+
 	return -ENOSYS;
 }
 
@@ -145,37 +154,51 @@ int l_mkdir(const char *path, mode_t mode)
  */
 int l_unlink(const char *path)
 {
+	fprintf(stderr, "l_unlink: file is %s\n", path);
+
 	/* TODO(vladum): Delete entry from hashtable. */
 	return 0;
 }
 
 int l_rmdir(const char *path)
 {
+	fprintf(stderr, "l_rmdir: file is %s\n", path);
+
 	return -ENOSYS;
 }
 
 int l_symlink(const char *oldname, const char *newname)
 {
+	fprintf(stderr, "l_symlink: old name %s new name %s\n", oldname, newname);
+
 	return -ENOSYS;
 }
 
 int l_rename(const char *oldname, const char *newname)
 {
+	fprintf(stderr, "l_rename: old name %s new name %s\n", oldname, newname);
+
 	return -ENOSYS;
 }
 
 int l_link(const char *oldname, const char *newname)
 {
+	fprintf(stderr, "l_link: old name %s new name %s\n", oldname, newname);
+
 	return -ENOSYS;
 }
 
 int l_chmod(const char *path, mode_t mode)
 {
+	fprintf(stderr, "l_chmod: file is %s\n", path);
+
 	return -ENOSYS;
 }
 
 int l_chown(const char *path, uid_t owner, gid_t group)
 {
+	fprintf(stderr, "l_chown: file is %s\n", path);
+
 	return -ENOSYS;
 }
 
@@ -186,6 +209,8 @@ int l_chown(const char *path, uid_t owner, gid_t group)
  */
 int l_truncate(const char *path, off_t length)
 {
+	fprintf(stderr, "l_truncate: file is %s\n", path);
+
 	if ((L_DATA->realmeta == 1) &&
 		(strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
 		strcmp(path + strlen(path) - 8, ".mbinmap") == 0)) {
@@ -234,6 +259,8 @@ int l_truncate(const char *path, off_t length)
  */
 int l_open(const char *path, struct fuse_file_info *fi)
 {
+	fprintf(stderr, "l_open: file is %s\n", path);
+
 	struct file_size *file_size;
 
 	HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
@@ -251,7 +278,11 @@ int l_open(const char *path, struct fuse_file_info *fi)
 			char realpath[MAXPATHLEN];
 			snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metapath, bn);
 			fprintf(stderr, "opening real file %s\n", realpath);
-			file_size->realfd = open(realpath, fi->flags);
+			int fd;
+			if ((fd = open(realpath, O_RDWR)) == -1) {
+				return -errno;
+			}
+			file_size->realfd = fd;
 			free(pathcopy);
 			return 0;
 		}
@@ -276,7 +307,7 @@ int l_open(const char *path, struct fuse_file_info *fi)
 int l_read(const char *path, char *buf, size_t size, off_t offset,
 	struct fuse_file_info *fi)
 {
-	printf ("l_read begin: %s %ld b from %ld\n", path, size, offset);
+	printf ("l_read begin: %s %ldB from %ld\n", path, size, offset);
 
 	struct file_size *file_size;
 	HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
@@ -340,7 +371,7 @@ int l_read(const char *path, char *buf, size_t size, off_t offset,
 int l_write(const char *path, const char *buf, size_t size, off_t offset,
 	struct fuse_file_info *fi)
 {
-	printf ("l_write begin: %s %ld b at %ld\n", path, size, offset);
+	printf ("l_write begin: %s %ldB at %ld\n", path, size, offset);
 
 	if ((L_DATA->realmeta == 1) &&
 		(strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
@@ -413,17 +444,23 @@ int l_write(const char *path, const char *buf, size_t size, off_t offset,
 
 int l_statfs(const char *path, struct statvfs *s)
 {
+	fprintf(stderr, "l_statfs: file is %s\n", path);
+
 	return -ENOSYS;
 }
 
 int l_flush(const char *path, struct fuse_file_info *fi)
 {
+	fprintf(stderr, "l_flush: file is %s\n", path);
+
 	/* Nothing to flush, so this always succeeds. */
 	return 0;
 }
 
 int l_release(const char *path, struct fuse_file_info *fi)
 {
+	fprintf(stderr, "l_release: file is %s\n", path);
+
 	struct file_size *file_size;
 	HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
 	if (file_size == NULL) {
@@ -444,33 +481,42 @@ int l_release(const char *path, struct fuse_file_info *fi)
 
 int l_fsync(const char *path, int isdatasync, struct fuse_file_info *fi)
 {
+	fprintf(stderr, "l_fsync: file is %s\n", path);
+
 	return -ENOSYS;
 }
 
 int l_setxattr(const char *path, const char *name, const char *value,
 	size_t size, int flags)
 {
+	fprintf(stderr, "l_setxattr: file is %s\n", path);
+
 	return -ENOSYS;
 }
 
 int l_getxattr(const char *path, const char *name, char *value, size_t size)
 {
-	return -ENOSYS;
+	fprintf(stderr, "l_getxattr: file is %s attr is %s\n", path, name);
+	return -ENOATTR;
 }
 
 int l_listxattr(const char *path, char *list, size_t size)
 {
+	fprintf(stderr, "l_listxattr: file is %s\n", path);
+
 	return -ENOSYS;
 }
 
 int l_removexattr(const char *path, const char *list)
 {
+	fprintf(stderr, "l_removexattr: file is %s\n", path);
+
 	return -ENOSYS;
 }
 
 int l_opendir(const char *path, struct fuse_file_info *fi)
 {
-	//fprintf(stderr, "in l_opendir: path=%s\n", path);
+	fprintf(stderr, "l_opendir: file is %s\n", path);
 
 	/* We only have one dir - the root. */
 	if (strcmp(path, "/") == 0)
@@ -482,6 +528,8 @@ int l_opendir(const char *path, struct fuse_file_info *fi)
 int l_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset,
 	struct fuse_file_info *fi)
 {
+	fprintf(stderr, "l_readdir: file is %s\n", path);
+
 	if (strcmp(path, "/") != 0)
 		return -ENOENT;
 
@@ -498,11 +546,15 @@ int l_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset,
 
 int l_releasedir(const char *path, struct fuse_file_info *fi)
 {
+	fprintf(stderr, "l_releasedir: file is %s\n", path);
+
 	return -ENOSYS;
 }
 
 int l_fsyncdir(const char *path, int isdatasync, struct fuse_file_info *fi)
 {
+	fprintf(stderr, "l_fsyncdir: file is %s\n", path);
+
 	return -ENOSYS;
 }
 
@@ -512,6 +564,7 @@ int l_fsyncdir(const char *path, int isdatasync, struct fuse_file_info *fi)
 void *l_init(struct fuse_conn_info *conn)
 {
 	fprintf(stderr, "l_init\n");
+
 	/* Just return the hashtable. */
 	return L_DATA;
 }
@@ -521,6 +574,8 @@ void *l_init(struct fuse_conn_info *conn)
  */
 void l_destroy(void *userdata)
 {
+	fprintf(stderr, "l_destroy\n");
+
 	struct file_size *files = ((struct l_state *)userdata)->file_to_size;
 	struct file_size *f, *tmp;
 
@@ -536,6 +591,8 @@ void l_destroy(void *userdata)
 
 int l_access(const char *path, int mode)
 {
+	fprintf(stderr, "l_access: file is %s\n", path);
+
 	/* We trust everybody. */
 	return 0;
 }
@@ -568,15 +625,12 @@ int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 			fprintf(stderr, "creating real file %s\n", realpath);
 			free(pathcopy);
 			int fd;
-			/* TODO(vladum): Remove | O_RDWR hask. */
-			if ((fd = open(realpath, fi->flags | O_RDWR, mode) != -1)) {
+			if ((fd = open(realpath, O_CREAT | O_RDWR | O_TRUNC, mode)) != -1) {
 				HASH_ADD_STR(L_DATA->file_to_size, path, file_size);
 				file_size->realfd = fd;
-				//write(fd, "test\n", 5);
-				//fprintf(stderr, "write ok in fd %d\n", fd);
 				return fi->fh;
 			} else {
-				return -1;
+				return -errno;
 			}
 		}
 
@@ -598,12 +652,16 @@ int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 
 int l_ftruncate(const char *path, off_t length, struct fuse_file_info *fi)
 {
+	fprintf(stderr, "l_ftruncate: file is %s\n", path);
+
 	/* Same as truncate for this filesystem. */
 	return l_truncate(path, length);
 }
 
 int l_fgetattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi)
 {
+	fprintf(stderr, "l_fgetattr: file is %s\n", path);
+
 	/* Same as getattr for this filesystem. */
 	return l_getattr(path, stbuf);
 }
@@ -611,16 +669,22 @@ int l_fgetattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi)
 int l_lock(const char *path, struct fuse_file_info *fi, int cmd,
 	struct flock *locks)
 {
-	return -ENOSYS;
+	fprintf(stderr, "l_lock: file is %s\n", path);
+
+	return -EINVAL;
 }
 
 int l_utimens(const char *path, const struct timespec ts[2])
 {
+	fprintf(stderr, "l_utimens: file is %s\n", path);
+
 	return -ENOSYS;
 }
 
 int l_bmap(const char *path, size_t blocksize, uint64_t *blockno)
 {
+	fprintf(stderr, "l_bmap: file is %s\n", path);
+
 	return -ENOSYS;
 }
 
