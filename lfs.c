@@ -32,12 +32,15 @@
 #define MAXPATHLEN 65565
 #define MAXMETAPATHLEN 65565
 
+unsigned char total_files = 0;
+
 struct file_size {
 	char path[MAXPATHLEN];
 	off_t size;
 	char *mhash;
 	char *mbinmap;
 	int realfd;
+	unsigned char id;
 	UT_hash_handle hh;
 };
 
@@ -359,7 +362,7 @@ int l_read(const char *path, char *buf, size_t size, off_t offset,
 				/* Return bytes read so far. */
 				return i;
 			} else {
-				buf[i] = 0xFE;
+				buf[i] = file_size->id;
 			}
 		}
 	}
@@ -635,6 +638,8 @@ int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 		}
 
 		HASH_ADD_STR(L_DATA->file_to_size, path, file_size);
+
+		file_size->id = ++total_files;
 	} else {
 		if ((fi->flags & O_CREAT) && (fi->flags & O_EXCL)) {
 			/* File already exists. */
