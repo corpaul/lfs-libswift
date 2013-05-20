@@ -365,50 +365,46 @@ int l_access(const char *path, int mode)
  */
 int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
-    struct file_size *file_size;
+    struct l_file *file;
 
-    fprintf(stderr, "l_create: file is %s\n", path);
-
-    HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
-    if (file_size == NULL) {
-        file_size = (struct file_size *)malloc(sizeof(*file_size));
-        file_size->size = 0;
-        strcpy(file_size->path, path);
-
-        if ((L_DATA->realmeta == 1) &&
-            (strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
-            strcmp(path + strlen(path) - 8, ".mbinmap") == 0)) {
-            // Delegating to real filesystem for meta files.
-            char *pathcopy = strdup(path);
-            char *bn = gnu_basename(pathcopy);
-            char realpath[MAXPATHLEN];
-            snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metapath, bn);
-            fprintf(stderr, "creating real file %s\n", realpath);
-            free(pathcopy);
-            int fd;
-            if ((fd = open(realpath, O_CREAT | O_RDWR | O_TRUNC, mode)) != -1) {
-                HASH_ADD_STR(L_DATA->file_to_size, path, file_size);
-                file_size->realfd = fd;
-                return fi->fh;
-            } else {
-                return -errno;
-            }
-        }
-
-        HASH_ADD_STR(L_DATA->file_to_size, path, file_size);
-
-        file_size->id = ++total_files;
-    } else {
+    /* find it */
+    HASH_FIND_STR(L_DATA->files, path, files);
+    if (file != NULL) {
         if ((fi->flags & O_CREAT) && (fi->flags & O_EXCL)) {
             /* File already exists. */
             return -EEXIST;
         }
     }
 
+    if (file == NULL) {
+        file = (struct l_file *)malloc(sizeof(*file));
+        file->size = 0;
+        strcpy(file->path, path);
+
+        if (is_meta_file(path)) {
+            /* delegate to real fs */
+            char *pathcopy = strdup(path);
+            char *bn = gnu_basename(pathcopy);
+            char realpath[MAXPATHLEN];
+            snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metadir, bn);
+            free(pathcopy);
+            int fd;
+            if ((fd = open(realpath, O_CREAT | O_RDWR | O_TRUNC, mode)) != -1) {
+                HASH_ADD_STR(L_DATA->files, path, file);
+                file->realfd = fd;
+                return fi->fh;
+            } else {
+                return -errno;
+            }
+        } else {
+            HASH_ADD_STR(L_DATA->files, path, file);
+
+            file->id = ++(L_DATA->nfiles);
+        }
+    }
+
     /* Reset size. */
-    file_size->size = 0;
-    file_size->mhash = NULL;
-    file_size->mbinmap = NULL;
+    file->size = 0;
 
     return fi->fh;
 }
