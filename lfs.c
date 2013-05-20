@@ -462,8 +462,7 @@ int main(int argc, char *argv[])
 
     /* Check command line. */
     if (argc < 3) {
-        fprintf(stderr,
-            "Usage: %s [FUSE and mount options] <mountpoint> <realstore>\n",
+        fprintf(stderr, "Usage: %s [fuse options] <mountpoint> <realstore>\n",
             argv[0]);
         return 1;
     }
