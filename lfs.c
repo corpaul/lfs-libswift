@@ -307,45 +307,13 @@ int l_release(const char *path, struct fuse_file_info *fi)
     }
 }
 
-int l_fsync(const char *path, int isdatasync, struct fuse_file_info *fi)
-{
-    fprintf(stderr, "l_fsync: file is %s\n", path);
-
-    return -ENOSYS;
-}
-
-int l_setxattr(const char *path, const char *name, const char *value,
-    size_t size, int flags)
-{
-    fprintf(stderr, "l_setxattr: file is %s\n", path);
-
-    return -ENOSYS;
-}
-
 int l_getxattr(const char *path, const char *name, char *value, size_t size)
 {
-    fprintf(stderr, "l_getxattr: file is %s attr is %s\n", path, name);
     return -ENOATTR;
-}
-
-int l_listxattr(const char *path, char *list, size_t size)
-{
-    fprintf(stderr, "l_listxattr: file is %s\n", path);
-
-    return -ENOSYS;
-}
-
-int l_removexattr(const char *path, const char *list)
-{
-    fprintf(stderr, "l_removexattr: file is %s\n", path);
-
-    return -ENOSYS;
 }
 
 int l_opendir(const char *path, struct fuse_file_info *fi)
 {
-    fprintf(stderr, "l_opendir: file is %s\n", path);
-
     /* We only have one dir - the root. */
     if (strcmp(path, "/") == 0)
         return 0;
@@ -356,34 +324,18 @@ int l_opendir(const char *path, struct fuse_file_info *fi)
 int l_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset,
     struct fuse_file_info *fi)
 {
-    fprintf(stderr, "l_readdir: file is %s\n", path);
-
     if (strcmp(path, "/") != 0)
         return -ENOENT;
 
     filler(buf, ".", NULL, 0);
     filler(buf, "..", NULL, 0);
 
-    struct file_size *files = L_DATA->file_to_size, *f, *tmp;
+    struct l_file *files = L_DATA->files, *f, *tmp;
     HASH_ITER(hh, files, f, tmp) {
         filler(buf, f->path + 1, NULL, 0);
     }
 
     return 0;
-}
-
-int l_releasedir(const char *path, struct fuse_file_info *fi)
-{
-    fprintf(stderr, "l_releasedir: file is %s\n", path);
-
-    return -ENOSYS;
-}
-
-int l_fsyncdir(const char *path, int isdatasync, struct fuse_file_info *fi)
-{
-    fprintf(stderr, "l_fsyncdir: file is %s\n", path);
-
-    return -ENOSYS;
 }
 
 /*
@@ -530,15 +482,15 @@ struct fuse_operations l_ops = {
     
     .flush       = l_flush,
     .release     = l_release,
-    .fsync       = l_fsync,
-    .setxattr    = l_setxattr,
+    
+    
     .getxattr    = l_getxattr,
-    .listxattr   = l_listxattr,
-    .removexattr = l_removexattr,
+    
+    
     .opendir     = l_opendir,
     .readdir     = l_readdir,
-    .releasedir  = l_releasedir,
-    .fsyncdir    = l_fsyncdir,
+
+
     .init        = l_init,
     .destroy     = l_destroy,
     .access      = l_access,
