@@ -1,21 +1,18 @@
 /*
  * Lazy File System
  *
- * This only has virtual files of a specific size. The files are not actually
- * stored anywhere, but some predetermined bytes are return at each read. Writes
- * are just send to a black hole. We use this to simulated huge files (e.g.,
- * 1TB) without actually storing the data in an underlying storage system.
- *
- * This file system does not support directories, symlinks or other non-required
- * operations. You get only read-only files and the option to change their size.
+ * Single directory support. Files ending in .mhash and .mbinmap are stored on
+ * a real filesystem (operations are forwarded). Other files are not stored
+ * anywhere and reads just return a preset value (a pattern), while writes do
+ * nothing (except changing the size). Name these normal files as:
+ * deadbeef_size_chunksize (where deadbeef is the pattern). The pattern, the
+ * size and the chunksize uniquelly identify a libswift roothash and other
+ * metadata (which can be precomputed).
+ * 
+ * Usage: ./lfs <mountpoint> <realstore>
  */
 
-#ifdef linux
-/* For pread()/pwrite() */
-#define _XOPEN_SOURCE 500
-#endif
-
-#define FUSE_USE_VERSION 26
+#define FUSE_USE_VERSION 26 /* new API */
 #include <fuse.h>
 
 #include <errno.h>
@@ -32,83 +29,72 @@
 #define MAXPATHLEN 65565
 #define MAXMETAPATHLEN 65565
 
-unsigned char total_files = 0;
-
-struct file_size {
+struct l_file {
     char path[MAXPATHLEN];
     off_t size;
-    char *mhash;
-    char *mbinmap;
-    int realfd;
-    unsigned char id;
+    int fd;
+    int realfd; /* if stored on real fs */
+    char pattern[4];
     UT_hash_handle hh;
 };
 
 struct l_state {
-    struct file_size *file_to_size; /* hash table holding sizes */
-    unsigned char realmeta;
-    char metapath[MAXMETAPATHLEN];
+    struct l_file *files; /* hash table holding l_file structs */
+    char metadir[MAXMETAPATHLEN];
+    unsigned nfiles;
 };
 
 #define L_DATA ((struct l_state *) fuse_get_context()->private_data)
 
-static inline char *gnu_basename(char *path)
-{
+static inline char *gnu_basename(char *path) {
     char *base = strrchr(path, '/');
     return base ? base+1 : path;
 }
 
+static inline unsigned int is_meta_file(const char *path) {
+    size_t l = strlen(path);
+    unsigned int r = 0;
+    
+    if (l >= 6) {
+        r |= (strcmp(path + l - 6, ".mhash") == 0);
+    }
+    
+    if (l >= 8) {
+        r |= (strcmp(path + l - 8, ".mbinmap") == 0);
+    }
+
+    return r;
+}
+
 /*
- * Returns a file's attributes.
- *
- * This should be fast as it is called all the time. Because we do not have an
- * underlying storage, we will keep all this information in memory at a location
- * pointed by the private_data field of fuse_context. We will use a hashtable
- * that maps a file path to the corresponding size. Size is the only attribute
- * this file system cares about.
+ * Predefined attributes - we don't care about most of these.
  */
-int l_getattr(const char *path, struct stat *stbuf)
-{
-    fprintf(stderr, "l_getattr: file is %s\n", path);
+int l_getattr(const char *path, struct stat *stbuf) {
+    struct l_file *file;
 
-    struct timespec zero = {.tv_sec = 0, .tv_nsec = 0};
+    /* find it */
+    HASH_FIND_STR(L_DATA->files, path, file);
+    if (file == NULL) {
+        return -ENOENT;
+    }
 
-    if (strcmp(path, "/") == 0) {
+    if (is_meta_file(path)) {
+        /* delegate to real fs */
+        char *pathcopy = strdup(path);
+        char *bn = gnu_basename(pathcopy);
+        char realpath[MAXPATHLEN];
+        snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metadir, bn);
+        int r = stat(realpath, stbuf);
+        free(pathcopy);
+
+        return r;
+    } else if (strcmp(path, "/") == 0) {
         stbuf->st_mode = S_IFDIR | 0755;
         stbuf->st_nlink = 2;
 
         return 0;
-    }
-
-    /* We only actually care about the size. */
-    struct file_size *file_size;
-
-    /* DEBUG */
-    //struct file_size *files = L_DATA->file_to_size;
-    //struct file_size *f, *tmp;
-    //printf("iterating files:\n");
-    //HASH_ITER(hh, files, f, tmp) {
-        //printf("%s %ld %ld\n", f->path, f->size, &(f->size));
-    //}
-
-    HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
-    if (file_size == NULL) {
-        return -ENOENT;
     } else {
-        if ((L_DATA->realmeta == 1) &&
-            (strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
-            strcmp(path + strlen(path) - 8, ".mbinmap") == 0)) {
-            // Delegating to real filesystem for meta files.
-            char *pathcopy = strdup(path);
-            char *bn = gnu_basename(pathcopy);
-            char realpath[MAXPATHLEN];
-            snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metapath, bn);
-            int r = stat(realpath, stbuf);
-            fprintf(stderr, "%d\n", r);
-            free(pathcopy);
-
-            return r;
-        }
+        time_t now = time(NULL);
 
         stbuf->st_dev = 0;
         stbuf->st_ino = 0;
@@ -118,15 +104,14 @@ int l_getattr(const char *path, struct stat *stbuf)
         stbuf->st_gid = getgid();
         stbuf->st_rdev = 0;
         stbuf->st_blksize = 0;
-        stbuf->st_atime = 0;//zero;
-        stbuf->st_mtime = 0;//zero;
-        stbuf->st_ctime = 0;//zero;
-        stbuf->st_size = file_size->size;
+        stbuf->st_atime = now;
+        stbuf->st_mtime = now;
+        stbuf->st_ctime = now;
+        stbuf->st_size = file->size;
         stbuf->st_blocks = stbuf->st_size / 512;
+        
+        return 0;
     }
-
-    /* This is always successful. */
-    return 0;
 }
 
 int l_readlink(const char *path, char *link, size_t size)
