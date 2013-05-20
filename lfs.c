@@ -216,51 +216,22 @@ int l_open(const char *path, struct fuse_file_info *fi)
 int l_read(const char *path, char *buf, size_t size, off_t offset,
     struct fuse_file_info *fi)
 {
-    printf ("l_read begin: %s %ldB from %ld\n", path, size, offset);
-
-    struct file_size *file_size;
-    HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
-    if (file_size == NULL) {
-        /* File does not exist. */
+    struct l_file *file;
+    
+    /* find it */
+    HASH_FIND_STR(L_DATA->files, path, file);
+    if (file == NULL) {
         return -ENOENT;
     }
 
-    if ((L_DATA->realmeta == 1) &&
-        (strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
-        strcmp(path + strlen(path) - 8, ".mbinmap") == 0)) {
-        // Delegating to real filesystem for meta files.
-        lseek(file_size->realfd, offset, SEEK_SET);
-        return read(file_size->realfd, buf, size);
-    }
-
-    if (strcmp(path + strlen(path) - 6, ".mhash") == 0) {
-        if (file_size->mhash == NULL)
-            return 0;
-
-        /* Read hashes from memory. */
-        int i;
-
-        for (i = 0; i < size; i++)
-            buf[i] = file_size->mhash[offset + i];
-
-        printf ("l_read end: %s %d b read\n", path, i);
-        return size;
-    } else if (strcmp(path + strlen(path) - 8, ".mbinmap") == 0) {
-        if (file_size->mbinmap == NULL)
-            return 0;
-
-        /* Read bins from memory. */
-        int i;
-
-        for (i = 0; i < size; i++)
-            buf[i] = file_size->mbinmap[offset + i];
-
-        printf ("l_read end: %s %d b read\n", path, i);
-        return size;
+    if (is_meta_file(path)) {
+        /* delegate to real fs */
+        lseek(file->realfd, offset, SEEK_SET);
+        return read(file->realfd, buf, size);
     } else {
         int i, j;
         for (i = 0; i < size; i++) {
-            if (offset + i >= file_size->size) {
+            if (offset + i >= file->size) {
                 /* Fill remaining buffer with 0s. */
                 for (j = i; j < size; j++)
                     buf[j] = 0x00;
@@ -268,7 +239,7 @@ int l_read(const char *path, char *buf, size_t size, off_t offset,
                 /* Return bytes read so far. */
                 return i;
             } else {
-                buf[i] = file_size->id;
+                buf[i] = file->id;
             }
         }
     }
