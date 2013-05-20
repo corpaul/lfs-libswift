@@ -415,16 +415,12 @@ int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 
 int l_ftruncate(const char *path, off_t length, struct fuse_file_info *fi)
 {
-    fprintf(stderr, "l_ftruncate: file is %s\n", path);
-
     /* Same as truncate for this filesystem. */
     return l_truncate(path, length);
 }
 
 int l_fgetattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi)
 {
-    fprintf(stderr, "l_fgetattr: file is %s\n", path);
-
     /* Same as getattr for this filesystem. */
     return l_getattr(path, stbuf);
 }
@@ -432,23 +428,7 @@ int l_fgetattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi)
 int l_lock(const char *path, struct fuse_file_info *fi, int cmd,
     struct flock *locks)
 {
-    fprintf(stderr, "l_lock: file is %s\n", path);
-
     return -EINVAL;
-}
-
-int l_utimens(const char *path, const struct timespec ts[2])
-{
-    fprintf(stderr, "l_utimens: file is %s\n", path);
-
-    return -ENOSYS;
-}
-
-int l_bmap(const char *path, size_t blocksize, uint64_t *blockno)
-{
-    fprintf(stderr, "l_bmap: file is %s\n", path);
-
-    return -ENOSYS;
 }
 
 void *l_init(struct fuse_conn_info *conn)
@@ -482,8 +462,6 @@ struct fuse_operations l_ops = {
     .ftruncate   = l_ftruncate,
     .fgetattr    = l_fgetattr,
     .lock        = l_lock,
-    .utimens     = l_utimens,
-    .bmap        = l_bmap
 
     .init        = l_init,
     /* TODO(vladum): Add the new functions? */
