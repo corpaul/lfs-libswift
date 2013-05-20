@@ -131,6 +131,7 @@ int l_unlink(const char *path)
     }
 
     HASH_DEL(L_DATA->files, file);
+    free(file);
 
     return 0;
 }
@@ -338,26 +339,10 @@ int l_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset,
     return 0;
 }
 
-/*
- * Initializes the Lazy File System.
- */
-void *l_init(struct fuse_conn_info *conn)
-{
-    fprintf(stderr, "l_init\n");
-
-    /* Just return the hashtable. */
-    return L_DATA;
-}
-
-/*
- * Cleans up the Lazy File System.
- */
 void l_destroy(void *userdata)
 {
-    fprintf(stderr, "l_destroy\n");
-
-    struct file_size *files = ((struct l_state *)userdata)->file_to_size;
-    struct file_size *f, *tmp;
+    struct l_file *files = ((struct l_state *)userdata)->files;
+    struct l_file *f, *tmp;
 
     /* Remove all files in the hashtable. */
     HASH_ITER(hh, files, f, tmp) {
@@ -371,16 +356,12 @@ void l_destroy(void *userdata)
 
 int l_access(const char *path, int mode)
 {
-    fprintf(stderr, "l_access: file is %s\n", path);
-
     /* We trust everybody. */
     return 0;
 }
 
 /*
  * Creates a file.
- *
- * We add a new entry in the hashtable.
  */
 int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
@@ -470,6 +451,11 @@ int l_bmap(const char *path, size_t blocksize, uint64_t *blockno)
     return -ENOSYS;
 }
 
+void *l_init(struct fuse_conn_info *conn)
+{
+    return L_DATA;
+}
+
 struct fuse_operations l_ops = {
     .getattr     = l_getattr,
     .unlink      = l_unlink,
@@ -490,8 +476,6 @@ struct fuse_operations l_ops = {
     .opendir     = l_opendir,
     .readdir     = l_readdir,
 
-
-    .init        = l_init,
     .destroy     = l_destroy,
     .access      = l_access,
     .create      = l_create,
@@ -501,6 +485,7 @@ struct fuse_operations l_ops = {
     .utimens     = l_utimens,
     .bmap        = l_bmap
 
+    .init        = l_init,
     /* TODO(vladum): Add the new functions? */
 };
 
