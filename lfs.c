@@ -188,13 +188,13 @@ int l_open(const char *path, struct fuse_file_info *fi)
         char *pathcopy = strdup(path);
         char *bn = gnu_basename(pathcopy);
         char realpath[MAXPATHLEN];
-        snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metapath, bn);
+        snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metadir, bn);
 
         int fd;
         if ((fd = open(realpath, O_RDWR)) == -1) {
             return -errno;
         }
-        file_size->realfd = fd;
+        file->realfd = fd;
         free(pathcopy);
 
         return 0;
@@ -240,7 +240,7 @@ int l_read(const char *path, char *buf, size_t size, off_t offset,
                 /* Return bytes read so far. */
                 return i;
             } else {
-                buf[i] = file->id;
+                buf[i] = file->fd;
             }
         }
     }
@@ -301,11 +301,11 @@ int l_release(const char *path, struct fuse_file_info *fi)
     
     if (is_meta_file(path)) {
         /* delegate to real fs */
-        return close(file_size->realfd);
-    } else {
-        /* Nothing to do for release() and the return value is ignored. */
-        return 0;
+        return close(file->realfd);
     }
+     
+    /* Nothing to do for release() and the return value is ignored. */
+    return 0;
 }
 
 int l_getxattr(const char *path, const char *name, char *value, size_t size)
@@ -368,7 +368,7 @@ int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
     struct l_file *file;
 
     /* find it */
-    HASH_FIND_STR(L_DATA->files, path, files);
+    HASH_FIND_STR(L_DATA->files, path, file);
     if (file != NULL) {
         if ((fi->flags & O_CREAT) && (fi->flags & O_EXCL)) {
             /* File already exists. */
@@ -399,7 +399,7 @@ int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
         } else {
             HASH_ADD_STR(L_DATA->files, path, file);
 
-            file->id = ++(L_DATA->nfiles);
+            file->fd = ++(L_DATA->nfiles);
         }
     }
 
