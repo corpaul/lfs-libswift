@@ -248,77 +248,34 @@ int l_read(const char *path, char *buf, size_t size, off_t offset,
     return size;
 }
 
+/*
+ * Write.
+ * 
+ * All writes, except the ones on .mhash and .mbinmap, are ignored (only the
+ * size is changed).
+ */
 int l_write(const char *path, const char *buf, size_t size, off_t offset,
     struct fuse_file_info *fi)
 {
-    printf ("l_write begin: %s %ldB at %ld\n", path, size, offset);
-
-    if ((L_DATA->realmeta == 1) &&
-        (strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
-        strcmp(path + strlen(path) - 8, ".mbinmap") == 0)) {
-        struct file_size *file_size;
-        HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
-        if (file_size == NULL) {
-            /* File does not exist. */
-            return -ENOENT;
-        }
-
-        // Delegating to real filesystem for meta files.
-        fprintf(stderr, "writing to real fd %d\n", file_size->realfd);
-        //int x = lseek(file_size->realfd, offset, SEEK_SET);
-        //fprintf(stderr, "lseek: %d %s\n", x, strerror(errno));
-
-        int r = write(file_size->realfd, buf, size);
-        fprintf(stderr, "wrote %d bytes to real file\n", r);
-        return r;
+    struct l_file *file;
+    
+    /* find it */
+    HASH_FIND_STR(L_DATA->files, path, file);
+    if (file == NULL) {
+        return -ENOENT;
     }
+    
+    if (is_meta_file(path)) {
+        /* delegate to real fs */
+        int r = write(file->realfd, buf, size);
 
-    /* LFS only accepts writes to the .mhash file. */
-    if (strcmp(path + strlen(path) - 6, ".mhash") == 0) {
-        struct file_size *file_size;
-        HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
-        if (file_size == NULL) {
-            /* File does not exist. */
-            return -ENOENT;
-        }
-
-        if (file_size->size < offset + size) {
-            /* File has to be resized to accomodate new data. */
-            file_size->mhash = (char *)realloc(file_size->mhash, offset + size);
-            file_size->size = offset + size;
-        }
-
-        int i;
-        for (i = 0; i < size; i++) {
-            file_size->mhash[offset + i] = buf[i];
-        }
-
-        printf ("l_write end: %s %d b written\n", path, i);
-        return size;
-    } else if (strcmp(path + strlen(path) - 8, ".mbinmap") == 0) {
-        struct file_size *file_size;
-        HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
-        if (file_size == NULL) {
-            /* File does not exist. */
-            return -ENOENT;
-        }
-
-        if (file_size->size < offset + size) {
-            /* File has to be resized to accomodate new data. */
-            file_size->mbinmap = (char *)realloc(file_size->mbinmap,
-                                                 offset + size);
-            file_size->size = offset + size;
-        }
-
-        int i;
-        for (i = 0; i < size; i++) {
-            file_size->mbinmap[offset + i] = buf[i];
-        }
-
-        printf ("l_write end: %s %d b written\n", path, i);
-        return size;
+        return r;
     } else {
-        return -ENOSYS;
+        if (file->size < offset + size) {
+            file->size = offset + size;
+        }
+
+        return size;
     }
 }
 
