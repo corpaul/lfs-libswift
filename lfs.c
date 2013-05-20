@@ -435,30 +435,21 @@ void *l_init(struct fuse_conn_info *conn)
 struct fuse_operations l_ops = {
     .getattr     = l_getattr,
     .unlink      = l_unlink,
-
     .truncate    = l_truncate,
-    .utime       = NULL,          /* deprecated */
     .open        = l_open,
     .read        = l_read,
     .write       = l_write,
-    
     .flush       = l_flush,
     .release     = l_release,
-    
-    
     .getxattr    = l_getxattr,
-    
-    
     .opendir     = l_opendir,
     .readdir     = l_readdir,
-
     .destroy     = l_destroy,
     .access      = l_access,
     .create      = l_create,
     .ftruncate   = l_ftruncate,
     .fgetattr    = l_fgetattr,
     .lock        = l_lock,
-
     .init        = l_init,
     /* TODO(vladum): Add the new functions? */
 };
@@ -466,35 +457,27 @@ struct fuse_operations l_ops = {
 int main(int argc, char *argv[])
 {
     if ((getuid() == 0) || (geteuid() == 0)) {
-        //fprintf(stderr,
-        //  "Cannot mount LFS as root because it is not secure.\n");
         return 1;
     }
 
     /* Check command line. */
-    if (argc < 2) {
-        //fprintf(stderr,
-        //  "Usage:\n\tlfs [FUSE and mount options] mountpoint\n");
+    if (argc < 3) {
+        fprintf(stderr,
+            "Usage: %s [FUSE and mount options] <mountpoint> <realstore>\n",
+            argv[0]);
         return 1;
     }
 
     struct l_state *l_data;
     l_data = malloc(sizeof(struct l_state));
     if (l_data == NULL) {
-        //fprintf(stderr, "Cannot allocate LFS state structure.\n");
         return 1;
     }
 
-    if (argc > 2) {
-        // We are using a real fs location for meta files.
-        l_data->realmeta = 1;
-        // TODO(vladum): Check if provided string is actually a directory.
-        strlcpy(l_data->metapath, argv[argc - 1], sizeof(l_data->metapath));
-        argv[argc - 1] = NULL;
-        argc -= 1;
-    } else {
-        l_data->realmeta = 0;
-    }
+    // TODO(vladum): Check if provided string is actually a directory.
+    strlcpy(l_data->metadir, argv[argc - 1], sizeof(l_data->metadir));
+    argv[argc - 1] = NULL;
+    argc -= 1;
 
     /* FUSE */
     int fuse_stat = fuse_main(argc, argv, &l_ops, l_data);
