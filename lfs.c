@@ -70,10 +70,10 @@ static inline unsigned int is_meta_file(const char *path)
 
 static inline int parse_pattern(const char *s, char *array)
 {
-    if (strlen(s) != 8) {
+    if (strlen(s) < 8) {
         return -1;
     }
-    
+
     int i;
     for (i = 0; i < 8; i += 2) {
         if (sscanf(&s[i], "%2hhx", &array[i / 2]) != 1) {
@@ -258,7 +258,7 @@ int l_read(const char *path, char *buf, size_t size, off_t offset,
                 /* Return bytes read so far. */
                 return i;
             } else {
-                buf[i] = file->fd;
+                buf[i] = file->pattern[(offset + i) % 4];
             }
         }
     }
@@ -419,7 +419,7 @@ int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 
             file->fd = ++(L_DATA->nfiles);
             char pattern[9];
-            strncpy(pattern, path, 8);
+            strncpy(pattern, path + 1, 8);
             pattern[8] = 0;
             /* TODO(vladum): Check error code. */
             parse_pattern(pattern, file->pattern);
