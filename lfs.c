@@ -68,6 +68,22 @@ static inline unsigned int is_meta_file(const char *path)
     return r;
 }
 
+static inline int parse_pattern(const char *s, char *array)
+{
+    if (strlen(s) != 8) {
+        return -1;
+    }
+    
+    int i;
+    for (i = 0; i < 8; i += 2) {
+        if (sscanf(&s[i], "%2hhx", &array[i / 2]) != 1) {
+            return -1;
+        }
+    }
+    
+    return 0;
+}
+
 /*
  * Predefined attributes - we don't care about most of these.
  */
@@ -402,6 +418,11 @@ int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
             HASH_ADD_STR(L_DATA->files, path, file);
 
             file->fd = ++(L_DATA->nfiles);
+            char pattern[9];
+            strncpy(pattern, path, 8);
+            pattern[8] = 0;
+            /* TODO(vladum): Check error code. */
+            parse_pattern(pattern, file->pattern);
         }
     }
 
