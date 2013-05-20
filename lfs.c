@@ -46,12 +46,14 @@ struct l_state {
 
 #define L_DATA ((struct l_state *) fuse_get_context()->private_data)
 
-static inline char *gnu_basename(char *path) {
+static inline char *gnu_basename(char *path)
+{
     char *base = strrchr(path, '/');
     return base ? base+1 : path;
 }
 
-static inline unsigned int is_meta_file(const char *path) {
+static inline unsigned int is_meta_file(const char *path)
+{
     size_t l = strlen(path);
     unsigned int r = 0;
     
@@ -69,7 +71,8 @@ static inline unsigned int is_meta_file(const char *path) {
 /*
  * Predefined attributes - we don't care about most of these.
  */
-int l_getattr(const char *path, struct stat *stbuf) {
+int l_getattr(const char *path, struct stat *stbuf)
+{
     struct l_file *file;
 
     /* find it */
@@ -114,124 +117,50 @@ int l_getattr(const char *path, struct stat *stbuf) {
     }
 }
 
-int l_readlink(const char *path, char *link, size_t size)
-{
-    fprintf(stderr, "l_readlink: file is %s\n", path);
-
-    return -ENOSYS;
-}
-
-int l_mknod(const char *path, mode_t mode, dev_t dev)
-{
-    fprintf(stderr, "l_mknod: file is %s\n", path);
-
-    return -ENOSYS;
-}
-
-int l_mkdir(const char *path, mode_t mode)
-{
-    fprintf(stderr, "l_mkdir: file is %s\n", path);
-
-    return -ENOSYS;
-}
-
 /*
  * Removes the file.
- *
- * We just delete the entry for this file from the hashtable.
  */
 int l_unlink(const char *path)
 {
-    fprintf(stderr, "l_unlink: file is %s\n", path);
+    struct l_file *file;
 
-    /* TODO(vladum): Delete entry from hashtable. */
+    /* find it */
+    HASH_FIND_STR(L_DATA->files, path, file);
+    if (file == NULL) {
+        return -ENOENT;
+    }
+
+    HASH_DEL(L_DATA->files, file);
+
     return 0;
 }
 
-int l_rmdir(const char *path)
-{
-    fprintf(stderr, "l_rmdir: file is %s\n", path);
-
-    return -ENOSYS;
-}
-
-int l_symlink(const char *oldname, const char *newname)
-{
-    fprintf(stderr, "l_symlink: old name %s new name %s\n", oldname, newname);
-
-    return -ENOSYS;
-}
-
-int l_rename(const char *oldname, const char *newname)
-{
-    fprintf(stderr, "l_rename: old name %s new name %s\n", oldname, newname);
-
-    return -ENOSYS;
-}
-
-int l_link(const char *oldname, const char *newname)
-{
-    fprintf(stderr, "l_link: old name %s new name %s\n", oldname, newname);
-
-    return -ENOSYS;
-}
-
-int l_chmod(const char *path, mode_t mode)
-{
-    fprintf(stderr, "l_chmod: file is %s\n", path);
-
-    return -ENOSYS;
-}
-
-int l_chown(const char *path, uid_t owner, gid_t group)
-{
-    fprintf(stderr, "l_chown: file is %s\n", path);
-
-    return -ENOSYS;
-}
-
 /*
- * Change file size.
- *
- * Returns 0 on success or -ENOENT if the file does not exists.
+ * Changes file size.
  */
 int l_truncate(const char *path, off_t length)
 {
-    fprintf(stderr, "l_truncate: file is %s\n", path);
-
-    if ((L_DATA->realmeta == 1) &&
-        (strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
-        strcmp(path + strlen(path) - 8, ".mbinmap") == 0)) {
-        // Delegating to real filesystem for meta files.
+    struct l_file *file;
+    
+    /* find it */
+    HASH_FIND_STR(L_DATA->files, path, file);
+    if (file == NULL) {
+        return -ENOENT;
+    }
+    
+    if (is_meta_file(path)) {
+        /* delegate to real fs */
         char *pathcopy = strdup(path);
         char *bn = gnu_basename(pathcopy);
         char realpath[MAXPATHLEN];
-        snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metapath, bn);
+        snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metadir, bn);
         int r = truncate(realpath, length);
         free(pathcopy);
 
         return r;
-    }
-
-    //printf("in l_truncate: length=%ld\n", length);
-    /* TODO(vladum): Check for max size? */
-    struct file_size *file_size;
-    HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
-    if (file_size == NULL) {
-        /* File not found. */
-        return -ENOENT;
     } else {
-        file_size->size = length;
+        file->size = length;
 
-        if (strcmp(path + strlen(path) - 6, ".mhash") == 0) {
-            /* Allocate space for mhash file. */
-            file_size->mhash = (char *)realloc(file_size->mhash, file_size->size);
-        } else if (strcmp(path + strlen(path) - 8, ".mbinmap") == 0) {
-            /* Allocate space for mhash file. */
-            file_size->mbinmap = (char *)realloc(file_size->mbinmap, file_size->size);
-        }
-
-        //printf("len = %ld, size = %ld pointer = %ld\n", length, file_size->size, &(file_size->size));
         return 0;
     }
 }
@@ -242,42 +171,36 @@ int l_truncate(const char *path, off_t length)
  * O_CREAT and O_EXCL are guaranteed to not be passed to this. The file will
  * exist when this is called. O_TRUNC might be present when atomic_o_trunc is
  * specified on a kernel version of 2.6.24 or later.
- *
- * Returns 0 when successful or an error otherwise.
  */
 int l_open(const char *path, struct fuse_file_info *fi)
 {
-    fprintf(stderr, "l_open: file is %s\n", path);
+    struct l_file *file;
 
-    struct file_size *file_size;
-
-    HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
-    if (file_size == NULL) {
-        /* File does not exist. */
+    /* find it */
+    HASH_FIND_STR(L_DATA->files, path, file);
+    if (file == NULL) {
         return -ENOENT;
-    } else {
-        if ((L_DATA->realmeta == 1) &&
-            (strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
-            strcmp(path + strlen(path) - 8, ".mbinmap") == 0)) {
-            // Delegating to real filesystem for meta files.
-            // Nothing I guess (except access rights)...
-            char *pathcopy = strdup(path);
-            char *bn = gnu_basename(pathcopy);
-            char realpath[MAXPATHLEN];
-            snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metapath, bn);
-            fprintf(stderr, "opening real file %s\n", realpath);
-            int fd;
-            if ((fd = open(realpath, O_RDWR)) == -1) {
-                return -errno;
-            }
-            file_size->realfd = fd;
-            free(pathcopy);
-            return 0;
+    }
+    
+    if (is_meta_file(path)) {
+        /* delegate to real fs */
+        char *pathcopy = strdup(path);
+        char *bn = gnu_basename(pathcopy);
+        char realpath[MAXPATHLEN];
+        snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metapath, bn);
+
+        int fd;
+        if ((fd = open(realpath, O_RDWR)) == -1) {
+            return -errno;
         }
-        /* If O_TRUNC set the size to 0. */
+        file_size->realfd = fd;
+        free(pathcopy);
+
+        return 0;
+    } else {
         if (fi->flags & O_TRUNC)
-            file_size->size = 0;
-        printf("returning 0...\n");
+            file->size = 0;
+
         /* This is it. We don't care about access rights. */
         return 0;
     }
@@ -286,9 +209,7 @@ int l_open(const char *path, struct fuse_file_info *fi)
 /*
  * Reads file.
  *
- * This is the only thing serious in this file system. It returns an incresing
- * number each 8 bytes. This means you have 2^64 numbers so the maximum filesize
- * is 8 bytes * 2^64 which is 128 YB or 134217728 TB.
+ * Iteratively returns a byte from a 4-byte preset pattern.
  *
  * TODO(vladum): Handle direct_io.
  */
@@ -430,17 +351,8 @@ int l_write(const char *path, const char *buf, size_t size, off_t offset,
     }
 }
 
-int l_statfs(const char *path, struct statvfs *s)
-{
-    fprintf(stderr, "l_statfs: file is %s\n", path);
-
-    return -ENOSYS;
-}
-
 int l_flush(const char *path, struct fuse_file_info *fi)
 {
-    fprintf(stderr, "l_flush: file is %s\n", path);
-
     /* Nothing to flush, so this always succeeds. */
     return 0;
 }
@@ -680,23 +592,14 @@ int l_bmap(const char *path, size_t blocksize, uint64_t *blockno)
 
 struct fuse_operations l_ops = {
     .getattr     = l_getattr,
-    .readlink    = l_readlink,
-    .getdir      = NULL,          /* deprecated */
-    .mknod       = l_mknod,
-    .mkdir       = l_mkdir,
     .unlink      = l_unlink,
-    .rmdir       = l_rmdir,
-    .symlink     = l_symlink,
-    .rename      = l_rename,
-    .link        = l_link,
-    .chmod       = l_chmod,
-    .chown       = l_chown,
+
     .truncate    = l_truncate,
     .utime       = NULL,          /* deprecated */
     .open        = l_open,
     .read        = l_read,
     .write       = l_write,
-    .statfs      = l_statfs,
+    
     .flush       = l_flush,
     .release     = l_release,
     .fsync       = l_fsync,
