@@ -75,6 +75,13 @@ int l_getattr(const char *path, struct stat *stbuf)
 {
     struct l_file *file;
 
+    if (strcmp(path, "/") == 0) {
+        stbuf->st_mode = S_IFDIR | 0755;
+        stbuf->st_nlink = 2;
+
+        return 0;
+    }
+
     /* find it */
     HASH_FIND_STR(L_DATA->files, path, file);
     if (file == NULL) {
@@ -91,11 +98,6 @@ int l_getattr(const char *path, struct stat *stbuf)
         free(pathcopy);
 
         return r;
-    } else if (strcmp(path, "/") == 0) {
-        stbuf->st_mode = S_IFDIR | 0755;
-        stbuf->st_nlink = 2;
-
-        return 0;
     } else {
         time_t now = time(NULL);
 
