@@ -285,26 +285,26 @@ int l_flush(const char *path, struct fuse_file_info *fi)
     return 0;
 }
 
+/*
+ * Release.
+ */
 int l_release(const char *path, struct fuse_file_info *fi)
 {
-    fprintf(stderr, "l_release: file is %s\n", path);
+    struct l_file *file;
 
-    struct file_size *file_size;
-    HASH_FIND_STR(L_DATA->file_to_size, path, file_size);
-    if (file_size == NULL) {
-        /* File does not exist. */
+    /* find it */
+    HASH_FIND_STR(L_DATA->files, path, file);
+    if (file == NULL) {
         return -ENOENT;
     }
-    if ((L_DATA->realmeta == 1) &&
-        (strcmp(path + strlen(path) - 6, ".mhash") == 0 ||
-        strcmp(path + strlen(path) - 8, ".mbinmap") == 0)) {
-        // Delegating to real filesystem for meta files.
-        fprintf(stderr, "closing real fd %d\n", file_size->realfd);
+    
+    if (is_meta_file(path)) {
+        /* delegate to real fs */
         return close(file_size->realfd);
+    } else {
+        /* Nothing to do for release() and the return value is ignored. */
+        return 0;
     }
-
-    /* Nothing to do for release() and the return value is ignored. */
-    return 0;
 }
 
 int l_fsync(const char *path, int isdatasync, struct fuse_file_info *fi)
