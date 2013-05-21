@@ -21,7 +21,6 @@
 #include <sys/stat.h>
 #include <stdio.h>
 #include <libgen.h>
-#include <attr/xattr.h>
 
 #include "uthash.h"
 
@@ -329,7 +328,7 @@ int l_release(const char *path, struct fuse_file_info *fi)
 
 int l_getxattr(const char *path, const char *name, char *value, size_t size)
 {
-    return -ENOATTR;
+    return -ENODATA;
 }
 
 int l_opendir(const char *path, struct fuse_file_info *fi)
