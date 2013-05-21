@@ -27,6 +27,7 @@
 #include "uthash.h"
 
 #define MAXPATHLEN 32
+#define MAXREALPATHLEN 256
 #define MAXMETAPATHLEN 32
 
 struct l_file { 
@@ -108,8 +109,8 @@ int l_getattr(const char *path, struct stat *stbuf)
         /* delegate to real fs */
         char *pathcopy = strdup(path);
         char *bn = gnu_basename(pathcopy);
-        char realpath[MAXPATHLEN];
-        snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metadir, bn);
+        char realpath[MAXREALPATHLEN];
+        snprintf(realpath, MAXREALPATHLEN, "%s/%s", L_DATA->metadir, bn);
         int r = stat(realpath, stbuf);
         free(pathcopy);
 
@@ -171,8 +172,8 @@ int l_truncate(const char *path, off_t length)
         /* delegate to real fs */
         char *pathcopy = strdup(path);
         char *bn = gnu_basename(pathcopy);
-        char realpath[MAXPATHLEN];
-        snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metadir, bn);
+        char realpath[MAXREALPATHLEN];
+        snprintf(realpath, MAXREALPATHLEN, "%s/%s", L_DATA->metadir, bn);
         int r = truncate(realpath, length);
         free(pathcopy);
 
@@ -205,8 +206,8 @@ int l_open(const char *path, struct fuse_file_info *fi)
         /* delegate to real fs */
         char *pathcopy = strdup(path);
         char *bn = gnu_basename(pathcopy);
-        char realpath[MAXPATHLEN];
-        snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metadir, bn);
+        char realpath[MAXREALPATHLEN];
+        snprintf(realpath, MAXREALPATHLEN, "%s/%s", L_DATA->metadir, bn);
 
         int fd;
         if ((fd = open(realpath, O_RDWR)) == -1) {
@@ -286,6 +287,7 @@ int l_write(const char *path, const char *buf, size_t size, off_t offset,
     
     if (is_meta_file(path)) {
         /* delegate to real fs */
+        lseek(file->realfd, offset, SEEK_SET);
         int r = write(file->realfd, buf, size);
 
         return r;
@@ -403,8 +405,8 @@ int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
             /* delegate to real fs */
             char *pathcopy = strdup(path);
             char *bn = gnu_basename(pathcopy);
-            char realpath[MAXPATHLEN];
-            snprintf(realpath, MAXPATHLEN, "%s/%s", L_DATA->metadir, bn);
+            char realpath[MAXREALPATHLEN];
+            snprintf(realpath, MAXREALPATHLEN, "%s/%s", L_DATA->metadir, bn);
             free(pathcopy);
             int fd;
             if ((fd = open(realpath, O_CREAT | O_RDWR | O_TRUNC, mode)) != -1) {
