@@ -26,10 +26,10 @@
 
 #include "uthash.h"
 
-#define MAXPATHLEN 65565
-#define MAXMETAPATHLEN 65565
+#define MAXPATHLEN 32
+#define MAXMETAPATHLEN 32
 
-struct l_file {
+struct l_file { 
     char path[MAXPATHLEN];
     off_t size;
     int fd;
