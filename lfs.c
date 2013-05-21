@@ -21,7 +21,6 @@
 #include <sys/stat.h>
 #include <stdio.h>
 #include <libgen.h>
-#include <bsd/string.h>
 #include <attr/xattr.h>
 
 #include "uthash.h"
@@ -499,7 +498,7 @@ int main(int argc, char *argv[])
     }
 
     // TODO(vladum): Check if provided string is actually a directory.
-    strlcpy(l_data->metadir, argv[argc - 1], sizeof(l_data->metadir));
+    snprintf(l_data->metadir, sizeof(l_data->metadir), "%s", argv[argc - 1]);
     argv[argc - 1] = NULL;
     argc -= 1;
 
