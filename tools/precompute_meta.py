@@ -12,9 +12,20 @@ def call_swift(swiftbin, filename, chunksize):
         '-z', chunksize,
         '-m'
     ]
-    print 'spawning:', cmd
     process = Popen(cmd, stdout=PIPE, stderr=STDOUT)
     process.wait()
+
+def content_files(dir):
+    for _, _, files in walk(dir):
+        for f in files:
+            if (not f.endswith('.mhash')) and (not f.endswith('.mbinmap')):
+                if content_files.i % 100 == 0:
+                    print '[*] Files discovered so far:', content_files.i
+                
+                abspath = path.join(dir, f)
+                content_files.i += 1
+                yield (f, abspath) 
+content_files.i = 0
 
 if __name__ == '__main__':
     if len(argv) != 3:
@@ -25,14 +36,6 @@ if __name__ == '__main__':
     lfsstore = argv[1]
     swiftbin = argv[2]
     
-    i = 0
-    for _, _, files in walk(lfsstore):
-        for f in files:
-            if (not f.endswith('.mhash')) and (not f.endswith('.mbinmap')):
-                if i % 100 == 0:
-                    print 'Files read so far:', i
-                
-                filename = path.join(lfsstore, f)
-                chunksize = f.split('_')[-1]
-                call_swift(swiftbin, filename, chunksize)
-                i += 1
+    for (f, abspath) in content_files(lfsstore):
+        chunksize = f.split('_')[-1]
+        call_swift(swiftbin, abspath, chunksize)
