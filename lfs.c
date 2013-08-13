@@ -21,12 +21,17 @@
 #include <sys/stat.h>
 #include <stdio.h>
 #include <libgen.h>
+#include <string.h>
+#include <stddef.h>
+#include <stdarg.h>
 
 #include "uthash.h"
 
 #define MAXPATHLEN 32
 #define MAXREALPATHLEN 256
 #define MAXMETAPATHLEN 32
+
+#define VERSION "0.1 beta"
 
 struct l_file { 
     char path[MAXPATHLEN];
@@ -39,11 +44,18 @@ struct l_file {
 
 struct l_state {
     struct l_file *files; /* hash table holding l_file structs */
-    char metadir[MAXMETAPATHLEN];
+    char *metadir;
     unsigned nfiles;
+    void *log_file; /* first a string, then a FILE* */
 };
 
-#define L_DATA ((struct l_state *) fuse_get_context()->private_data)
+/* Global var holding FS configuration. */
+struct l_state l_data;
+
+#define l_log(...) do { \
+                       fprintf(l_data.log_file, __VA_ARGS__); \
+                       fflush(l_data.log_file); \
+                   } while (0)
 
 static inline char *gnu_basename(char *path)
 {
@@ -98,7 +110,7 @@ int l_getattr(const char *path, struct stat *stbuf)
     }
 
     /* find it */
-    HASH_FIND_STR(L_DATA->files, path, file);
+    HASH_FIND_STR(l_data.files, path, file);
     if (file == NULL) {
         return -ENOENT;
     }
@@ -108,7 +120,7 @@ int l_getattr(const char *path, struct stat *stbuf)
         char *pathcopy = strdup(path);
         char *bn = gnu_basename(pathcopy);
         char realpath[MAXREALPATHLEN];
-        snprintf(realpath, MAXREALPATHLEN, "%s/%s", L_DATA->metadir, bn);
+        snprintf(realpath, MAXREALPATHLEN, "%s/%s", l_data.metadir, bn);
         int r = stat(realpath, stbuf);
         free(pathcopy);
 
@@ -142,12 +154,12 @@ int l_unlink(const char *path)
     struct l_file *file;
 
     /* find it */
-    HASH_FIND_STR(L_DATA->files, path, file);
+    HASH_FIND_STR(l_data.files, path, file);
     if (file == NULL) {
         return -ENOENT;
     }
 
-    HASH_DEL(L_DATA->files, file);
+    HASH_DEL(l_data.files, file);
     free(file);
 
     return 0;
@@ -161,7 +173,7 @@ int l_truncate(const char *path, off_t length)
     struct l_file *file;
     
     /* find it */
-    HASH_FIND_STR(L_DATA->files, path, file);
+    HASH_FIND_STR(l_data.files, path, file);
     if (file == NULL) {
         return -ENOENT;
     }
@@ -171,7 +183,7 @@ int l_truncate(const char *path, off_t length)
         char *pathcopy = strdup(path);
         char *bn = gnu_basename(pathcopy);
         char realpath[MAXREALPATHLEN];
-        snprintf(realpath, MAXREALPATHLEN, "%s/%s", L_DATA->metadir, bn);
+        snprintf(realpath, MAXREALPATHLEN, "%s/%s", l_data.metadir, bn);
         int r = truncate(realpath, length);
         free(pathcopy);
 
@@ -194,18 +206,22 @@ int l_open(const char *path, struct fuse_file_info *fi)
 {
     struct l_file *file;
 
+    l_log("opening file %s ", path);
+
     /* find it */
-    HASH_FIND_STR(L_DATA->files, path, file);
+    HASH_FIND_STR(l_data.files, path, file);
     if (file == NULL) {
         return -ENOENT;
     }
+
+    l_log("(file exists)\n");
     
     if (is_meta_file(path)) {
         /* delegate to real fs */
         char *pathcopy = strdup(path);
         char *bn = gnu_basename(pathcopy);
         char realpath[MAXREALPATHLEN];
-        snprintf(realpath, MAXREALPATHLEN, "%s/%s", L_DATA->metadir, bn);
+        snprintf(realpath, MAXREALPATHLEN, "%s/%s", l_data.metadir, bn);
 
         int fd;
         if ((fd = open(realpath, O_RDWR)) == -1) {
@@ -237,7 +253,7 @@ int l_read(const char *path, char *buf, size_t size, off_t offset,
     struct l_file *file;
     
     /* find it */
-    HASH_FIND_STR(L_DATA->files, path, file);
+    HASH_FIND_STR(l_data.files, path, file);
     if (file == NULL) {
         return -ENOENT;
     }
@@ -276,13 +292,15 @@ int l_write(const char *path, const char *buf, size_t size, off_t offset,
     struct fuse_file_info *fi)
 {
     struct l_file *file;
-    
+    l_log("%ld bytes at %ld ", size, offset);
     /* find it */
-    HASH_FIND_STR(L_DATA->files, path, file);
+    HASH_FIND_STR(l_data.files, path, file);
     if (file == NULL) {
         return -ENOENT;
     }
     
+    l_log("(file was found)\n");
+
     if (is_meta_file(path)) {
         /* delegate to real fs */
         lseek(file->realfd, offset, SEEK_SET);
@@ -312,7 +330,7 @@ int l_release(const char *path, struct fuse_file_info *fi)
     struct l_file *file;
 
     /* find it */
-    HASH_FIND_STR(L_DATA->files, path, file);
+    HASH_FIND_STR(l_data.files, path, file);
     if (file == NULL) {
         return -ENOENT;
     }
@@ -349,7 +367,7 @@ int l_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset,
     filler(buf, ".", NULL, 0);
     filler(buf, "..", NULL, 0);
 
-    struct l_file *files = L_DATA->files, *f, *tmp;
+    struct l_file *files = l_data.files, *f, *tmp;
     HASH_ITER(hh, files, f, tmp) {
         filler(buf, f->path + 1, NULL, 0);
     }
@@ -385,8 +403,10 @@ int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
     struct l_file *file;
 
+    l_log("creating file %s ", path);
+
     /* find it */
-    HASH_FIND_STR(L_DATA->files, path, file);
+    HASH_FIND_STR(l_data.files, path, file);
     if (file != NULL) {
         if ((fi->flags & O_CREAT) && (fi->flags & O_EXCL)) {
             /* File already exists. */
@@ -394,6 +414,8 @@ int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
         }
     }
 
+    l_log("(file didn't exist)\n");
+    
     if (file == NULL) {
         file = (struct l_file *)malloc(sizeof(*file));
         file->size = 0;
@@ -404,20 +426,22 @@ int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
             char *pathcopy = strdup(path);
             char *bn = gnu_basename(pathcopy);
             char realpath[MAXREALPATHLEN];
-            snprintf(realpath, MAXREALPATHLEN, "%s/%s", L_DATA->metadir, bn);
+            snprintf(realpath, MAXREALPATHLEN, "%s/%s", l_data.metadir, bn);
             free(pathcopy);
             int fd;
+            l_log("realpath: %s\n", realpath);
             if ((fd = open(realpath, O_CREAT | O_RDWR | O_TRUNC, mode)) != -1) {
-                HASH_ADD_STR(L_DATA->files, path, file);
+                HASH_ADD_STR(l_data.files, path, file);
                 file->realfd = fd;
                 return fi->fh;
             } else {
+                l_log("%s\n", strerror(errno));
                 return -errno;
             }
         } else {
-            HASH_ADD_STR(L_DATA->files, path, file);
+            HASH_ADD_STR(l_data.files, path, file);
 
-            file->fd = ++(L_DATA->nfiles);
+            file->fd = ++(l_data.nfiles);
             char pattern[9];
             strncpy(pattern, path + 1, 8);
             pattern[8] = 0;
@@ -452,7 +476,7 @@ int l_lock(const char *path, struct fuse_file_info *fi, int cmd,
 
 void *l_init(struct fuse_conn_info *conn)
 {
-    return L_DATA;
+    return NULL;
 }
 
 struct fuse_operations l_ops = {
@@ -477,32 +501,152 @@ struct fuse_operations l_ops = {
     /* TODO(vladum): Add the new functions? */
 };
 
+enum {
+     KEY_HELP,
+     KEY_VERSION,
+};
+
+static struct fuse_opt l_opts[] = {
+    { "realstore=%s", offsetof(struct l_state, metadir), 0 },
+    { "logfile=%s", offsetof(struct l_state, log_file), 0 },
+    FUSE_OPT_KEY("-V",             KEY_VERSION),
+    FUSE_OPT_KEY("--version",      KEY_VERSION),
+    FUSE_OPT_KEY("-h",             KEY_HELP),
+    FUSE_OPT_KEY("--help",         KEY_HELP),
+    FUSE_OPT_END
+};
+
+static int l_opt_proc(void *data, const char *arg, int k, struct fuse_args *oa)
+{
+    switch (k) {
+        case KEY_HELP:
+            fprintf(stderr,
+                "usage: %s mountpoint [options]\n"
+                "\n"
+                "general options:\n"
+                "    -o opt,[opt...]  mount options\n"
+                "    -h   --help      print help\n"
+                "    -V   --version   print version\n"
+                "\n"
+                "LFS options:\n"
+                "    -o realstore=PATH      real dir for libswift meta files\n"
+                "    -o logfile=PATH        optional log file\n"
+                "\n", oa->argv[0]);
+            fuse_opt_add_arg(oa, "-ho");
+            fuse_main(oa->argc, oa->argv, &l_ops, NULL);
+            exit(1);
+
+        case KEY_VERSION:
+             fprintf(stderr, "LFS version %s\n", VERSION);
+             fuse_opt_add_arg(oa, "--version");
+             fuse_main(oa->argc, oa->argv, &l_ops, NULL);
+             exit(0);
+    }
+    return 1;
+}
+
+static struct fuse *l_setup(struct fuse_args *args,
+                            const struct fuse_operations *op, size_t op_size,
+                            char **mountpoint, int *multithreaded)
+{
+    struct fuse_chan *ch;
+    struct fuse *fuse;
+    int foreground;
+    int res;
+
+    res = fuse_parse_cmdline(args, mountpoint, multithreaded, &foreground);
+    if (res == -1)
+        return NULL;
+
+    ch = fuse_mount(*mountpoint, args);
+    if (!ch) {
+        fuse_opt_free_args(args);
+        goto err_free;
+    }
+
+    fuse = fuse_new(ch, args, op, op_size, &l_data);
+    fuse_opt_free_args(args);
+    if (fuse == NULL)
+        goto err_unmount;
+
+    res = fuse_daemonize(foreground);
+    if (res == -1)
+        goto err_unmount;
+
+    res = fuse_set_signal_handlers(fuse_get_session(fuse));
+    if (res == -1)
+        goto err_unmount;
+
+    return fuse;
+
+err_unmount:
+    fuse_unmount(*mountpoint, ch);
+    if (fuse)
+        fuse_destroy(fuse);
+err_free:
+    free(*mountpoint);
+    return NULL;
+}
+
+static int l_main(struct fuse_args *args)
+{
+    char *mountpoint;
+    int multithreaded;
+    struct fuse *fuse;
+    int res;
+
+    fuse = l_setup(args, &l_ops, sizeof(l_ops), &mountpoint, &multithreaded);
+    if (fuse == NULL) {
+        return 1;
+    }
+
+    printf ("Mountpoint: %s\n", mountpoint);
+
+    if (multithreaded) {
+        res = fuse_loop_mt(fuse);
+    } else {
+        res = fuse_loop(fuse);
+    }
+
+    fuse_teardown(fuse, mountpoint);
+    if (res == -1) {
+        return 1;
+    }
+
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     if ((getuid() == 0) || (geteuid() == 0)) {
+        fprintf(stderr, "Please DO NOT run this as root!\n");
         return 1;
     }
 
-    /* Check command line. */
-    if (argc < 3) {
-        fprintf(stderr, "Usage: %s [fuse options] <mountpoint> <realstore>\n",
-            argv[0]);
-        return 1;
+    struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+
+    fuse_opt_parse(&args, &l_data, l_opts, l_opt_proc);
+
+    /* Get and open log file. */
+    if (l_data.log_file != NULL) {
+        printf("Logging to file: %s\n", (char *)l_data.log_file);
+        l_data.log_file = fopen(l_data.log_file, "w");
+        l_log("log started\n");
     }
 
-    struct l_state *l_data;
-    l_data = malloc(sizeof(struct l_state));
-    if (l_data == NULL) {
-        return 1;
+    /* Get and resolve libswift meta files dir. */
+    if (l_data.metadir == NULL) {
+        fprintf(stderr, "Path for libswift meta files not specified. "
+                        "Please use -o realstore=PATH option.\n");
+        exit(1);
     }
-
-    // TODO(vladum): Check if provided string is actually a directory.
-    snprintf(l_data->metadir, sizeof(l_data->metadir), "%s", argv[argc - 1]);
-    argv[argc - 1] = NULL;
-    argc -= 1;
+    l_data.metadir = realpath(l_data.metadir, NULL);
+    if (l_data.metadir == NULL) {
+        perror("Failed to resolve realstore path.");
+        exit(1);
+    }
+    printf("Libswift metadir: %s\n", l_data.metadir);
 
     /* FUSE */
-    int fuse_stat = fuse_main(argc, argv, &l_ops, l_data);
-
-    return fuse_stat;
+    return l_main(&args);
 }
