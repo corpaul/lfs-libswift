@@ -9,7 +9,7 @@
  * size and the chunksize uniquelly identify a libswift roothash and other
  * metadata (which can be precomputed).
  * 
- * Usage: ./lfs [fuse options] <mountpoint> <realstore>
+ * Usage: ./lfs -o [fuse options],realstore=PATH <mountpoint>
  */
 
 #define FUSE_USE_VERSION 26 /* new API */
