@@ -154,6 +154,7 @@ int l_getattr(const char *path, struct stat *stbuf)
 int l_unlink(const char *path)
 {
     struct l_file *file;
+    int r = 0;
 
     /* find it */
     HASH_FIND_STR(l_data.files, path, file);
@@ -161,10 +162,20 @@ int l_unlink(const char *path)
         return -ENOENT;
     }
 
+    /* remove meta files from real storage */
+    if (is_meta_file(path)) {
+        char *pathcopy = strdup(path);
+        char *bn = gnu_basename(pathcopy);
+        char realpath[MAXREALPATHLEN];
+        snprintf(realpath, MAXREALPATHLEN, "%s/%s", l_data.metadir, bn);
+        r = unlink(realpath);
+        free(pathcopy);
+    }
+
     HASH_DEL(l_data.files, file);
     free(file);
 
-    return 0;
+    return r; /* r is always 0 when file is not meta */
 }
 
 /*
