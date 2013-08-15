@@ -273,7 +273,9 @@ int l_read(const char *path, char *buf, size_t size, off_t offset,
 
     if (is_meta_file(path)) {
         /* delegate to real fs */
-        lseek(file->realfd, offset, SEEK_SET);
+        if (offset != lseek(file->realfd, 0, SEEK_CUR)) {
+            lseek(file->realfd, offset, SEEK_SET);
+        }
         return read(file->realfd, buf, size);
     } else {
         int i, j;
@@ -316,7 +318,9 @@ int l_write(const char *path, const char *buf, size_t size, off_t offset,
 
     if (is_meta_file(path)) {
         /* delegate to real fs */
-        lseek(file->realfd, offset, SEEK_SET);
+        if (offset != lseek(file->realfd, 0, SEEK_CUR)) {
+            lseek(file->realfd, offset, SEEK_SET);
+        }
         int r = write(file->realfd, buf, size);
 
         return r;
