@@ -5,13 +5,16 @@ from os import walk, path
 from subprocess import Popen, PIPE, STDOUT
 from threading import Thread
 
-def call_swift(swiftbin, filename, chunksize):
+def call_swift(swiftbin, filename, chunksize, debug=False):
     cmd = [
         path.abspath(swiftbin),
         '-f', filename,
         '-z', chunksize,
         '-m'
     ]
+    if debug:
+        cmd += ['--debug']
+    print '[ ] Spawning:', " ".join(cmd)
     process = Popen(cmd, stdout=PIPE, stderr=STDOUT)
     process.wait()
 
