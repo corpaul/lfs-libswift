@@ -53,8 +53,10 @@ struct l_state {
 struct l_state l_data;
 
 #define l_log(...) do { \
-                       fprintf(l_data.log_file, __VA_ARGS__); \
-                       fflush(l_data.log_file); \
+                    if (l_data.log_file) { \
+                     fprintf(l_data.log_file, __VA_ARGS__); \
+                     fflush(l_data.log_file); \
+                    } \
                    } while (0)
 
 static inline char *gnu_basename(char *path)
