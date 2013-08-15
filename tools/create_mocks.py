@@ -49,7 +49,16 @@ SIZE_MULTIPLIERS = {
 }
 
 def parse_size(size):
-    return int(size[:-2]) * SIZE_MULTIPLIERS[size[-2:]]
+    return int(size[:-2]) * SIZE_MULTIPLIERS[size[-2:].lower()]
+
+def compact_size(bytes):
+    bytes = int(bytes)
+    mmax = 0
+    for (s, m) in SIZE_MULTIPLIERS.items():
+        if (bytes / m) == int((bytes / m)) and (bytes / m) > 0 and mmax < m:
+            mmax = m
+            r = s
+    return str((bytes / m / 1024)) + r
 
 if __name__ == '__main__':
     if len(argv) != 5:
