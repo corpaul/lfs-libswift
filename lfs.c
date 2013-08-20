@@ -27,7 +27,7 @@
 
 #include "uthash.h"
 
-#define MAXPATHLEN 32
+#define MAXPATHLEN 50
 #define MAXREALPATHLEN 256
 #define MAXMETAPATHLEN 32
 
@@ -137,7 +137,7 @@ int l_getattr(const char *path, struct stat *stbuf)
         stbuf->st_uid = getuid();
         stbuf->st_gid = getgid();
         stbuf->st_rdev = 0;
-        stbuf->st_blksize = 0;
+        stbuf->st_blksize = 512;
         stbuf->st_atime = now;
         stbuf->st_mtime = now;
         stbuf->st_ctime = now;
@@ -307,14 +307,14 @@ int l_write(const char *path, const char *buf, size_t size, off_t offset,
     struct fuse_file_info *fi)
 {
     struct l_file *file;
-    l_log("%ld bytes at %ld ", size, offset);
+    //l_log("%ld bytes at %ld ", size, offset);
     /* find it */
     HASH_FIND_STR(l_data.files, path, file);
     if (file == NULL) {
         return -ENOENT;
     }
     
-    l_log("(file was found)\n");
+    //l_log("(file was found)\n");
 
     if (is_meta_file(path)) {
         /* delegate to real fs */
@@ -473,6 +473,69 @@ int l_create(const char *path, mode_t mode, struct fuse_file_info *fi)
     return fi->fh;
 }
 
+int l_rename(const char *old, const char *new)
+{
+    struct l_file *file;
+
+    l_log("rename old: %s new: %s", old, new);
+
+    /* find new one */
+    HASH_FIND_STR(l_data.files, new, file);
+    if (file != NULL) {
+        return -EEXIST;
+    }
+
+    /* find old one */
+    HASH_FIND_STR(l_data.files, old, file);
+    if (file == NULL) {
+        return -ENOENT;
+    }
+
+
+    if ((is_meta_file(old) && !is_meta_file(new)) ||
+        (is_meta_file(new) && !is_meta_file(old))) {
+        /* do not rename metafiles to non-meta and reversed */
+        return -EINVAL;
+    }
+
+    if (is_meta_file(old) && is_meta_file(new)) {
+        /* delegate to real fs */
+        char *oldcopy = strdup(old);
+        char *newcopy = strdup(new);
+        char *bnold = gnu_basename(oldcopy);
+        char *bnnew = gnu_basename(newcopy);
+        char realold[MAXREALPATHLEN], realnew[MAXREALPATHLEN];
+        snprintf(realold, MAXREALPATHLEN, "%s/%s", l_data.metadir, bnold);
+        snprintf(realnew, MAXREALPATHLEN, "%s/%s", l_data.metadir, bnnew);
+        free(oldcopy);
+        free(newcopy);
+
+        l_log("realpaths old: %s new: %s\n", realold, realnew);
+
+        int r = rename(realold, realnew);
+        if (r == -1) {
+            l_log("%s\n", strerror(errno));
+            return -errno;
+        }
+    }
+
+    /* change path in files list */
+    struct l_file *newfile;
+    newfile = (struct l_file *)malloc(sizeof(*newfile));
+    strcpy(newfile->path, new);
+    HASH_ADD_STR(l_data.files, path, newfile);
+
+    newfile->fd = file->fd;
+    newfile->size = file->size;
+    newfile->realfd = file->realfd;
+    strncpy(newfile->pattern, file->pattern, 4);
+
+    HASH_DEL(l_data.files, file);
+    free(file);
+
+    return 0;
+}
+
 int l_ftruncate(const char *path, off_t length, struct fuse_file_info *fi)
 {
     /* Same as truncate for this filesystem. */
@@ -515,6 +578,7 @@ struct fuse_operations l_ops = {
     .fgetattr    = l_fgetattr,
     .lock        = l_lock,
     .init        = l_init,
+    .rename      = l_rename,
     /* TODO(vladum): Add the new functions? */
 };
 
