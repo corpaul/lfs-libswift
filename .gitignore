@@ -3,3 +3,5 @@
 *.pyc
 lfs
 swift
+logs/
+*.tar.*
