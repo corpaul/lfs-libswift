@@ -5,9 +5,15 @@
 # VFS level IO byte stats
 global writes, reads
 probe kernel.function("vfs_read").call { if (target() == pid()) {
+  printf("%p %p %p %p\n", pointer_arg(1), pointer_arg(2), pointer_arg(3), pointer_arg(4))
   printf("%s\n", $$parms)
   printf("%s\n", $$locals)
-  //reads <<< bytes_read
+}}
+
+probe kernel.function("vfs_read").return { if (target() == pid()) {
+  printf("%s\n", $$parms)
+  printf("%s\n", $$locals)
+  reads <<< bytes_read
 }}
 
 probe vfs.write.return { if (target() == pid()) {
