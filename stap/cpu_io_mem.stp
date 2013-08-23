@@ -1,72 +1,87 @@
 #! /usr/bin/env stap
 
-# ------------------------------------------------------------------------
-# data collection
+# I/O size histogram -----------------------------------------------------------
+# http://blog.incubaid.com/2012/03/06/tracing-block-device-write-request-sizes-in-linux-using-systemtap/
+global writes, reads
 
-# disk I/O stats
-probe begin { qnames["ioblock"] ++; qsq_start ("ioblock") }
-probe ioblock.request { qs_wait ("ioblock") qs_run("ioblock") }
-probe ioblock.end { qs_done ("ioblock") }
+probe ioblock.request { if (target() == pid()) {
+  if (@defined($devname)) {
+    if (bio_rw_num(rw) == BIO_WRITE) {
+      writes[devname] <<< size
+    } else if (bio_rw_num(rw) == BIO_READ) {
+      reads[devname] <<< size
+    }
+  }
+}}
 
-# CPU utilization
-probe begin { qnames["cpu"] ++; qsq_start ("cpu") }
-probe scheduler.cpu_on { if (!idle) {qs_wait ("cpu") qs_run ("cpu") }}
-probe scheduler.cpu_off { if (!idle) qs_done ("cpu") }
+probe end {
+  printf("\n")
+  foreach ([devname] in writes-) {
+    printf("dev %s pid %d writes\n", devname, pid())
+    println(@hist_log(writes[devname]))
+  }
+  foreach ([devname] in reads-) {
+    printf("dev %s pid %d reads\n", devname, pid())
+    println(@hist_log(reads[devname]))
+  }
+}
 
+# disk I/O stats ---------------------------------------------------------------
+probe begin {
+  qnames["ioblock"]++;
 
-# ------------------------------------------------------------------------
-# utilization history tracking
+  qsq_start("ioblock")
+  qs_wait("ioblock")
+}
+probe ioblock.request { if (target() == pid()) {
+  qs_run("ioblock")
+}}
+probe ioblock.end { if (target() == pid()) {
+  qs_done("ioblock")
+  qs_wait("ioblock")
+}}
 
+# CPU utilization --------------------------------------------------------------
+probe begin {
+  qnames["cpu"]++;
+  qsq_start("cpu") 
+}
+probe scheduler.cpu_on { if (!idle && (target() == pid())) {
+  qs_wait("cpu")
+  qs_run("cpu") 
+}}
+probe scheduler.cpu_off { if (!idle && (target() == pid())) {
+  qs_done("cpu")
+}}
+
+# utilization history tracking -------------------------------------------------
 global N
 probe begin { N = 200 }
 
 global qnames, util, histidx
 
 function qsq_util_reset(q) {
-  u=qsq_utilization (q, 100)
-  qsq_start (q)
+  u = qsq_utilization(q, 100)
+  qsq_start(q)
   return u
 }
 
-probe timer.ms(20) {  # collect utilization percentages frequently
+# collect utilization percentages frequently
+probe timer.ms(20) { if (target() == pid()) {
   histidx = (histidx + 1) % N  # into circular buffer
   foreach (q in qnames)
-    util[histidx,q] = qsq_util_reset(q)
-}
+    util[histidx, q] = qsq_util_reset(q)
+}}
 
 
-# ------------------------------------------------------------------------
-# general gnuplot graphical report generation
-
-#probe timer.ms(1000) {
-#  # emit gnuplot command to display recent history
-#
-#  printf ("set yrange [0:100]\n")
-#  printf ("plot ")
-#  foreach (q in qnames+)
-#    {
-#      if (++nq >= 2) printf (", ")
-#      printf ("'-' title \"%s\" with lines", q)
-#    }
-#  printf ("\n")
-#
-#  foreach (q in qnames+) {
-#    for (i = (histidx + 1) % N; i != histidx; i = (i + 1) % N)
-#      printf("%d\n", util[i,q])
-#    printf ("e\n")
-#  }
-#
-#  printf ("pause 1\n")
-#}
-
+# gnuplot ----------------------------------------------------------------------
 probe end {
   printf ("set yrange [0:100]\n")
   printf ("plot ")
-  foreach (q in qnames+)
-    {
-      if (++nq >= 2) printf (", ")
-      printf ("'-' title \"%s\" with lines", q)
-    }
+  foreach (q in qnames+) {
+    if (++nq >= 2) printf (", ")
+    printf ("'-' title \"%s\" with lines", q)
+  }
   printf ("\n")
 
   foreach (q in qnames+) {
