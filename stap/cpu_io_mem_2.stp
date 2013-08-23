@@ -1,0 +1,22 @@
+#! /usr/bin/env stap
+
+# I/O size histogram -----------------------------------------------------------
+
+# VFS level IO byte stats
+global writes, reads
+probe kernel.function("vfs_read").call { if (target() == pid()) {
+  printf("%s\n", $$parms)
+  printf("%s\n", $$locals)
+  //reads <<< bytes_read
+}}
+
+probe vfs.write.return { if (target() == pid()) {
+  writes <<< bytes_written
+}}
+
+probe end {
+  printf("READS\n")
+  println(@hist_log(reads))
+  printf("WRITES\n")
+  println(@hist_log(writes))
+}
