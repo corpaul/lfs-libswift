@@ -1,28 +1,190 @@
 #! /usr/bin/env stap
 
-# I/O size histogram -----------------------------------------------------------
+################################################################################
+# cpu_io_mem_2.stp
+#
+# Copyright (c) 2013 Vlad Dumitrescu <vlad@dumitrescu.ro>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 as
+# published by the Free Software Foundation.
+################################################################################
 
-# VFS level IO byte stats
-global writes, reads
-probe kernel.function("vfs_read").call { if (target() == pid()) {
-  printf("%p %p %p %p\n", pointer_arg(1), pointer_arg(2), pointer_arg(3), pointer_arg(4))
-  printf("%s\n", $$parms)
-  printf("%s\n", $$locals)
-}}
+global target_pid
 
-probe kernel.function("vfs_read").return { if (target() == pid()) {
-  printf("%s\n", $$parms)
-  printf("%s\n", $$locals)
-  reads <<< bytes_read
-}}
+probe begin(-100) {
+  target_pid = target()
+}
 
-probe vfs.write.return { if (target() == pid()) {
-  writes <<< bytes_written
-}}
+# I/O VFS stats ----------------------------------------------------------------
+#
+# Note: This might not be very accurate since it's made at the VFS level.
+#
+global read_rate, read_stats, read_rate_ts
+
+probe begin {
+  read_rate_ts = gettimeofday_ns()
+
+  # print header
+  printf("END_TIME, START_TIME, READ_RATE_CONTENT, READ_RATE_META, READ_RATE_MHASH, READ_RATE_MBINMAP\n")
+}
+
+probe kernel.function("vfs_read").return {
+  if (target_pid != pid()) next
+  
+  f = @entry(pointer_arg(1))
+  filename = __file_filename(f)
+  bytes_read = returnval()
+
+  if (strlen(filename) == 40) {
+    // content file
+    read_rate["content"] += bytes_read
+    read_stats["content"] <<< bytes_read
+  } else if (isinstr(filename, ".mhash")) {
+    // metadata file (mhash)
+    read_rate["mhash"] += bytes_read
+    read_stats["mhash"] <<< bytes_read
+
+    read_rate["meta"] += bytes_read
+    read_stats["meta"] <<< bytes_read
+  } else if (isinstr(filename, ".mbinmap")) {
+    // metadate file (mbinmap)
+    read_rate["mbinmap"] += bytes_read
+    read_stats["mbinmap"] <<< bytes_read
+
+    read_rate["meta"] += bytes_read
+    read_stats["meta"] <<< bytes_read
+  }
+}
+
+probe timer.ms(200) {
+  printf("%ld, %ld, %ld, %ld, %ld, %ld\n", gettimeofday_ns(), read_rate_ts,
+         read_rate["content"], read_rate["meta"], read_rate["mhash"],
+         read_rate["mbinmap"])
+
+  # reset counters
+  read_rate["content"] = 0
+  read_rate["meta"] = 0
+  read_rate["mhash"] = 0
+  read_rate["mbinmap"] = 0
+
+  # reset time
+  read_rate_ts = gettimeofday_ns()
+}
 
 probe end {
-  printf("READS\n")
-  println(@hist_log(reads))
-  printf("WRITES\n")
-  println(@hist_log(writes))
+  # print statistics
+  printf("\n\n\n")
+  if (@count(read_stats["content"])) {
+    printf("READS (content)\n")
+    println(@hist_log(read_stats["content"]))
+  }
+
+  if (@count(read_stats["meta"])) {
+    printf("READS (meta)\n")
+    println(@hist_log(read_stats["meta"]))
+  }
+
+  if (@count(read_stats["mhash"])) {
+    printf("READS (mhash)\n")
+    println(@hist_log(read_stats["mhash"]))
+  }
+
+  if (@count(read_stats["mbinmap"])) {
+    printf("READS (mbinmap)\n")
+    println(@hist_log(read_stats["mbinmap"]))
+  }
+}
+
+# CPU stats --------------------------------------------------------------------
+#
+# Section inspired by SystemTap examples (schedtime.stp)
+# Original Author: Jason Baron <jbaron@redhat.com>
+# http://sourceware.org/systemtap/examples/process/schedtimes.stp
+#
+global RUNNING=0, QUEUED=1, SLEEPING=2, UNSET=-1
+
+global run_time, queued_time, sleep_time, io_wait_time
+global state, prev_time, io_wait_count, io_wait_incremented
+
+function get_iowait:long(queue:long)
+{
+  return @cast(queue, "rq", "kernel")->nr_iowait->counter;
+}
+
+probe begin {
+  state = UNSET
+}
+
+probe kernel.trace("sched_switch") {
+  previous_pid = $prev->pid
+  next_pid = $next->pid
+
+  if (!(previous_pid == target_pid || next_pid == target_pid)) next
+
+  if (previous_pid == target_pid) {
+    if (state == UNSET) {
+      prev_time = gettimeofday_us()
+      if ($prev->state > 0) {
+        state = SLEEPING
+      } else if ($prev->state == 0) {
+        state = QUEUED
+      }
+    } else if (state == RUNNING) {
+      now = gettimeofday_us()
+      run_time += (now - prev_time)
+      prev_time = now
+
+      if ($prev->state > 0) {
+        if (@defined($rq) && (get_iowait($rq) - io_wait_count) > 0)
+          io_wait_incremented = 1
+        state = SLEEPING;
+      } else if ($prev->state == 0) {
+        state = QUEUED
+      }
+    }
+  }
+
+  if (next_pid == target_pid) {
+    if (@defined($rq))
+      io_wait_count = get_iowait($rq);
+
+    if (state == UNSET) {
+      prev_time = gettimeofday_us()
+      state = RUNNING
+    } else if (state == QUEUED) {
+      now = gettimeofday_us()
+      queued_time += (now - prev_time)
+      prev_time = now
+      state = RUNNING
+    }
+  }
+}
+
+probe kernel.trace("sched_wakeup") {
+  wakeup_pid = $p->pid
+
+  if (wakeup_pid != target_pid) next
+  if ((!$success) && (state != SLEEPING)) next
+  if (!wakeup_pid) next
+
+  if (state == UNSET) {
+    prev_time = gettimeofday_us()
+    state = QUEUED
+  } else if (state == SLEEPING) {
+    now = gettimeofday_us()
+    sleep_time += (now - prev_time)
+    if (io_wait_incremented == 1) {
+      io_wait_time += (now - prev_time)
+      io_wait_incremented = 0
+    }
+    prev_time = now
+    state = QUEUED
+  }
+}
+
+probe end(100) {
+  printf("\n\n\n")
+  printf("run_time, queued_time, sleep_time, io_wait_time\n")
+  printf("%d, %d, %d, %d\n", run_time, queued_time, sleep_time, io_wait_time)
 }
