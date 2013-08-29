@@ -8,8 +8,10 @@ def parse_res_usage(orig, parsed=sys.stdout):
 
     try:
         sc_clk_tck = float(os.sysconf(os.sysconf_names['SC_CLK_TCK']))
+        print "SC_CLK_TCK is:", sc_clk_tck
     except AttributeError:
         sc_clk_tck = 100.0
+        print "SC_CLK_TCK is:", sc_clk_tck, "(default)"
 
     for line in orig.readlines():
         parts = line.split(" ")
@@ -25,7 +27,7 @@ def parse_res_usage(orig, parsed=sys.stdout):
 
             pcpu = ((utime_diff + stime_diff) / sc_clk_tck) * (1 / time_diff)
             
-            print >>parsed, time_diff, pcpu
+            print >>parsed, pcpu
         except:
             time_diff = 0.0
             utime_diff = 0.0
