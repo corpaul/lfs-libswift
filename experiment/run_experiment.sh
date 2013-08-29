@@ -6,6 +6,7 @@ set +v
 # Edit these when running, for example, on Jenkins.
 WORKSPACE=.
 STAP_BIN=stap
+STAP_RUN=staprun
 DIR_SWIFT=.
 DIR_LFS=.
 LOCAL=true
@@ -77,45 +78,57 @@ ls -alh $LFS_SRC_REALSTORE
 
 hexdump -C -n 8192 $LFS_SRC_STORE/$HASH
 
+# compile SystemTap module
+#$STAP_BIN -p4 -DMAXMAPENTRIES=10000 -t -r `uname -r` -vv -m cpu_io_mem_2 $DIR_LFS/stap/cpu_io_mem_2.stp >$LOGS_DIR/cpu_io_mem_2.compile.log 2>&1
+
 # start source swift
-$STAP_BIN -v $DIR_LFS/stap/cpu_io_mem_2.stp -o $LOGS_DIR/swift.src.stap.out -c "taskset -c 0 $DIR_SWIFT/swift -w 60s -e $LFS_SRC_STORE -l 1337 -c 10000 -z 8192 --progress -D$LOGS_DIR/swift.src.debug" >$LOGS_DIR/swift.src.log 2>&1 &
+#$STAP_RUN -R -o $LOGS_DIR/swift.src.stap.out -c "taskset -c 0 timeout 60s $DIR_SWIFT/swift -e $LFS_SRC_STORE -l 1337 -c 10000 -z 8192 --progress -D$LOGS_DIR/swift.src.debug" cpu_io_mem_2.ko >$LOGS_DIR/swift.src.log 2>&1 &
+
+mkdir -p $LOGS_DIR/src
+mkdir -p $LOGS_DIR/dst
+
+./process_guard.py -c "$DIR_SWIFT/swift -e $LFS_SRC_STORE -l 1337 -c 10000 -z 8192 --progress -D$LOGS_DIR/swift.src.debug" -t 4 -m $LOGS_DIR/src -o $LOGS_DIR/src &
 SWIFT_SRC_PID=$!
 
 echo "Starting destination in 6s..."
-sleep 6s
+sleep 1s
 
 # start destination swift
-$STAP_BIN -v $DIR_LFS/stap/cpu_io_mem_2.stp -o $LOGS_DIR/swift.dst.stap.out -c "taskset -c 1 $DIR_SWIFT/swift -w 50s -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" >$LOGS_DIR/swift.dst.log 2>&1 &
+#$STAP_RUN -R -o $LOGS_DIR/swift.dst.stap.out -c "taskset -c 1 timeout 50s $DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" cpu_io_mem_2.ko >$LOGS_DIR/swift.dst.log 2>&1 &
+./process_guard.py -c "$DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" -t 2 -m $LOGS_DIR/dst -o $LOGS_DIR/dst
 SWIFT_DST_PID=$!
 
 echo "Waiting for swifts to finish (~60s)..."
+wait $SWIFT_SRC_PID
+wait $SWIFT_DST_PID
 
-sleep 40s
-
-#wait $SWIFT_SRC_PID
-#wait $SWIFT_DST_PID
+#./process_guard.py -c "$DIR_SWIFT/swift -e $LFS_SRC_STORE -l 1337 -c 10000 -z 8192 --progress -D$LOGS_DIR/swift.src.debug" -c "$DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" -t 50 -m $LOGS_DIR -o $LOGS_DIR
 
 echo "---------------------------------------------------------------------------------"
 
+# check LFS storage
 ls -alh $LFS_SRC_STORE
 ls -alh $LFS_SRC_REALSTORE
 ls -alh $LFS_DST_STORE
 ls -alh $LFS_DST_REALSTORE
 
-#sleep 10s
+sleep 10s
 
 # --------- EXPERIMENT END ----------
 #kill -9 $SWIFT_SRC_PID $SWIFT_DST_PID || true
 fusermount -z -u $LFS_SRC_STORE
 fusermount -z -u $LFS_DST_STORE
 #kill -9 $LFS_SRC_PID $LFS_DST_PID || true
-pkill -9 swift || true
+#pkill -9 swift || true
 
 sleep 5s
+
+# separate logs
+
 
 # remove temps
 rm -rf $LFS_SRC_STORE
 rm -rf $LFS_SRC_REALSTORE
 rm -rf $LFS_DST_STORE
 rm -rf $LFS_DST_REALSTORE
-rm -rf ./src ./dst # TODO
+# rm -rf ./src ./dst # TODO
