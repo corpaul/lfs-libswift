@@ -11,23 +11,31 @@
 ################################################################################
 
 global target_pid
+global read_rate, read_stats, read_rate_ts
+global RUNNING=0, QUEUED=1, SLEEPING=2, UNSET=-1
+global run_time, queued_time, sleep_time, io_wait_time
+global state, prev_time, io_wait_count, io_wait_incremented
+global vfs_read_f
 
-probe begin(-100) {
+probe begin {
   target_pid = target()
+
+  println("Target PID is: %d", target_pid)
+
+  # print header
+  printf("END_TIME, START_TIME, READ_RATE_CONTENT, READ_RATE_META, READ_RATE_MHASH, READ_RATE_MBINMAP\n")
+
+  read_rate_ts = gettimeofday_ns()
+
+  state = UNSET
 }
+
+# ------------------------------------------------------------------------------
 
 # I/O VFS stats ----------------------------------------------------------------
 #
 # Note: This might not be very accurate since it's made at the VFS level.
 #
-global read_rate, read_stats, read_rate_ts
-
-probe begin {
-  read_rate_ts = gettimeofday_ns()
-
-  # print header
-  printf("END_TIME, START_TIME, READ_RATE_CONTENT, READ_RATE_META, READ_RATE_MHASH, READ_RATE_MBINMAP\n")
-}
 
 probe kernel.function("vfs_read").return {
   if (target_pid != pid()) next
@@ -72,48 +80,16 @@ probe timer.ms(200) {
   read_rate_ts = gettimeofday_ns()
 }
 
-probe end {
-  # print statistics
-  printf("\n\n\n")
-  if (@count(read_stats["content"])) {
-    printf("READS (content)\n")
-    println(@hist_log(read_stats["content"]))
-  }
-
-  if (@count(read_stats["meta"])) {
-    printf("READS (meta)\n")
-    println(@hist_log(read_stats["meta"]))
-  }
-
-  if (@count(read_stats["mhash"])) {
-    printf("READS (mhash)\n")
-    println(@hist_log(read_stats["mhash"]))
-  }
-
-  if (@count(read_stats["mbinmap"])) {
-    printf("READS (mbinmap)\n")
-    println(@hist_log(read_stats["mbinmap"]))
-  }
-}
-
 # CPU stats --------------------------------------------------------------------
 #
 # Section inspired by SystemTap examples (schedtime.stp)
 # Original Author: Jason Baron <jbaron@redhat.com>
 # http://sourceware.org/systemtap/examples/process/schedtimes.stp
 #
-global RUNNING=0, QUEUED=1, SLEEPING=2, UNSET=-1
-
-global run_time, queued_time, sleep_time, io_wait_time
-global state, prev_time, io_wait_count, io_wait_incremented
 
 function get_iowait:long(queue:long)
 {
   return @cast(queue, "rq", "kernel")->nr_iowait->counter;
-}
-
-probe begin {
-  state = UNSET
 }
 
 probe kernel.trace("sched_switch") {
@@ -183,8 +159,32 @@ probe kernel.trace("sched_wakeup") {
   }
 }
 
-probe end(100) {
-  printf("\n\n\n")
+# ------------------------------------------------------------------------------
+
+probe end {
+  # print statistics
+  println("-------")
+  if (@count(read_stats["content"])) {
+    printf("READS (content)\n")
+    println(@hist_log(read_stats["content"]))
+  }
+
+  if (@count(read_stats["meta"])) {
+    printf("READS (meta)\n")
+    println(@hist_log(read_stats["meta"]))
+  }
+
+  if (@count(read_stats["mhash"])) {
+    printf("READS (mhash)\n")
+    println(@hist_log(read_stats["mhash"]))
+  }
+
+  if (@count(read_stats["mbinmap"])) {
+    printf("READS (mbinmap)\n")
+    println(@hist_log(read_stats["mbinmap"]))
+  }
+  
+  println("------")
   printf("run_time, queued_time, sleep_time, io_wait_time\n")
   printf("%d, %d, %d, %d\n", run_time, queued_time, sleep_time, io_wait_time)
 }
