@@ -34,9 +34,10 @@ make -C $DIR_SWIFT
 if [ ! -d "$DIR_LFS" ]; then
     git clone git@github.com:vladum/lfs-libswift.git $DIR_LFS
 fi
-if [ ! $LOCAL ]; then
+if ! $LOCAL; then
     cd $DIR_LFS
     git pull origin master
+    make
     cd -
 fi
 
@@ -87,7 +88,7 @@ hexdump -C -n 8192 $LFS_SRC_STORE/$HASH
 mkdir -p $LOGS_DIR/src
 mkdir -p $LOGS_DIR/dst
 
-./process_guard.py -c "$DIR_SWIFT/swift -e $LFS_SRC_STORE -l 1337 -c 10000 -z 8192 --progress -D$LOGS_DIR/swift.src.debug" -t 4 -m $LOGS_DIR/src -o $LOGS_DIR/src &
+$DIR_LFS/process_guard.py -c "taskset -c 0 $DIR_SWIFT/swift -e $LFS_SRC_STORE -l 1337 -c 10000 -z 8192 --progress -D$LOGS_DIR/swift.src.debug" -t 60 -m $LOGS_DIR/src -o $LOGS_DIR/src &
 SWIFT_SRC_PID=$!
 
 echo "Starting destination in 6s..."
@@ -95,14 +96,14 @@ sleep 1s
 
 # start destination swift
 #$STAP_RUN -R -o $LOGS_DIR/swift.dst.stap.out -c "taskset -c 1 timeout 50s $DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" cpu_io_mem_2.ko >$LOGS_DIR/swift.dst.log 2>&1 &
-./process_guard.py -c "$DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" -t 2 -m $LOGS_DIR/dst -o $LOGS_DIR/dst
+$DIR_LFS/process_guard.py -c "taskset -c 1 $DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" -t 50 -m $LOGS_DIR/dst -o $LOGS_DIR/dst
 SWIFT_DST_PID=$!
 
 echo "Waiting for swifts to finish (~60s)..."
 wait $SWIFT_SRC_PID
 wait $SWIFT_DST_PID
 
-#./process_guard.py -c "$DIR_SWIFT/swift -e $LFS_SRC_STORE -l 1337 -c 10000 -z 8192 --progress -D$LOGS_DIR/swift.src.debug" -c "$DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" -t 50 -m $LOGS_DIR -o $LOGS_DIR
+#$DIR_LFS/process_guard.py -c "$DIR_SWIFT/swift -e $LFS_SRC_STORE -l 1337 -c 10000 -z 8192 --progress -D$LOGS_DIR/swift.src.debug" -c "$DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" -t 50 -m $LOGS_DIR -o $LOGS_DIR
 
 echo "---------------------------------------------------------------------------------"
 
