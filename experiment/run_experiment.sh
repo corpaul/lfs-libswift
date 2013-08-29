@@ -24,7 +24,8 @@ mkdir -p $LFS_SRC_STORE $LFS_SRC_REALSTORE $LFS_DST_STORE $LFS_DST_REALSTORE
 DATE=$(date +'%F-%H-%M')
 LOGS_DIR=$WORKSPACE/logs/$DATE
 PLOTS_DIR=$WORKSPACE/plots/$DATE
-mkdir -p $LOGS_DIR $PLOTS_DIR
+PLOTS_DIR_LAST=$WORKSPACE/plots/last
+mkdir -p $LOGS_DIR $PLOTS_DIR $PLOTS_DIR_LAST
 
 fusermount -V
 df -h
@@ -144,3 +145,6 @@ $DIR_LFS/experiment/parse_logs.py $LOGS_DIR/dst
 # ------------- PLOTTING -------------
 gnuplot -e "logdir='$LOGS_DIR/src';peername='src';plotsdir='$PLOTS_DIR'" $DIR_LFS/experiment/resource_usage.gnuplot
 gnuplot -e "logdir='$LOGS_DIR/dst';peername='dst';plotsdir='$PLOTS_DIR'" $DIR_LFS/experiment/resource_usage.gnuplot
+
+rm $PLOTS_DIR_LAST/*
+cp $PLOTS_DIR/* $PLOTS_DIR_LAST/
