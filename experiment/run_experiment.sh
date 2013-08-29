@@ -133,3 +133,8 @@ rm -rf $LFS_SRC_REALSTORE
 rm -rf $LFS_DST_STORE
 rm -rf $LFS_DST_REALSTORE
 # rm -rf ./src ./dst # TODO
+
+# ------------- LOG PARSING -------------
+
+$DIR_LFS/experiment/parse_logs.py $LOGS_DIR/src
+$DIR_LFS/experiment/parse_logs.py $LOGS_DIR/dst
