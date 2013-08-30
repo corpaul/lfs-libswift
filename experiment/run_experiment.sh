@@ -109,7 +109,7 @@ sleep 5s
 $DIR_LFS/process_guard.py -c "taskset -c 1 $DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" -t $(($TIME-5)) -m $LOGS_DIR/dst -o $LOGS_DIR/dst &
 SWIFT_DST_PID=$!
 
-echo "Waiting for swifts to finish (~$TIMEs)..."
+echo "Waiting for swifts to finish (~${TIME}s)..."
 wait $SWIFT_SRC_PID
 wait $SWIFT_DST_PID
 
