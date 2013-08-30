@@ -1,7 +1,6 @@
 #!/bin/bash
 
-set +e
-set +v
+set -e
 
 # Run this before this script --------------------------------------------------
     # # build libswift
@@ -20,18 +19,24 @@ set +v
 
 # Machine-specific variables ---------------------------------------------------
 # Override these on Jenkins before running the script.
-: ${WORKSPACE:-.}
-: ${STAP_BIN:-stap}
-: ${STAP_RUN:-staprun}
-: ${DIR_SWIFT:-.}
-: ${DIR_LFS:-.}
+: ${WORKSPACE:=.}
+: ${STAP_BIN:=stap}
+: ${STAP_RUN:=staprun}
+: ${DIR_SWIFT:=.}
+: ${DIR_LFS:=.}
+: ${TIME:=30}
 # ------------------------------------------------------------------------------
+
+echo "Running swift processes for $TIME seconds"
 
 LFS_SRC_STORE=$WORKSPACE/src/store
 LFS_SRC_REALSTORE=$WORKSPACE/src/real
 
 LFS_DST_STORE=$WORKSPACE/dst/store
 LFS_DST_REALSTORE=$WORKSPACE/dst/real
+
+fusermount -u $LFS_SRC_STORE || true
+fusermount -u $LFS_DST_STORE || true
 
 mkdir -p $LFS_SRC_STORE $LFS_SRC_REALSTORE $LFS_DST_STORE $LFS_DST_REALSTORE
 
@@ -92,18 +97,18 @@ hexdump -C -n 8192 $LFS_SRC_STORE/$HASH
 mkdir -p $LOGS_DIR/src
 mkdir -p $LOGS_DIR/dst
 
-$DIR_LFS/process_guard.py -c "taskset -c 0 $DIR_SWIFT/swift -e $LFS_SRC_STORE -l 1337 -c 10000 -z 8192 --progress -D$LOGS_DIR/swift.src.debug" -t 60 -m $LOGS_DIR/src -o $LOGS_DIR/src &
+$DIR_LFS/process_guard.py -c "taskset -c 0 $DIR_SWIFT/swift -e $LFS_SRC_STORE -l 1337 -c 10000 -z 8192 --progress -D$LOGS_DIR/swift.src.debug" -t $TIME -m $LOGS_DIR/src -o $LOGS_DIR/src &
 SWIFT_SRC_PID=$!
 
-echo "Starting destination in 6s..."
-sleep 1s
+echo "Starting destination in 5s..."
+sleep 5s
 
 # start destination swift
 #$STAP_RUN -R -o $LOGS_DIR/swift.dst.stap.out -c "taskset -c 1 timeout 50s $DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" cpu_io_mem_2.ko >$LOGS_DIR/swift.dst.log 2>&1 &
-$DIR_LFS/process_guard.py -c "taskset -c 1 $DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" -t 50 -m $LOGS_DIR/dst -o $LOGS_DIR/dst &
+$DIR_LFS/process_guard.py -c "taskset -c 1 $DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" -t $(($TIME-5)) -m $LOGS_DIR/dst -o $LOGS_DIR/dst &
 SWIFT_DST_PID=$!
 
-echo "Waiting for swifts to finish (~60s)..."
+echo "Waiting for swifts to finish (~$TIMEs)..."
 wait $SWIFT_SRC_PID
 wait $SWIFT_DST_PID
 
