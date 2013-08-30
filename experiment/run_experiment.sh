@@ -1,7 +1,23 @@
 #!/bin/bash
 
 set +e
-set +v 
+set +v
+
+# Run this before this script --------------------------------------------------
+    # # build libswift
+    # make -C $DIR_SWIFT
+
+    # # get and build LFS
+    # if [ ! -d "$DIR_LFS" ]; then
+    #     git clone git@github.com:vladum/lfs-libswift.git $DIR_LFS
+    # else
+    #     cd $DIR_LFS
+    #     git pull origin master
+    #     cd -
+    # fi
+    # make -C $DIR_LFS
+# ------------------------------------------------------------------------------
+
 # Machine-specific variables ---------------------------------------------------
 # Override these on Jenkins before running the script.
 : ${WORKSPACE:-.}
@@ -9,7 +25,6 @@ set +v
 : ${STAP_RUN:-staprun}
 : ${DIR_SWIFT:-.}
 : ${DIR_LFS:-.}
-: ${LOCAL:-true}
 # ------------------------------------------------------------------------------
 
 LFS_SRC_STORE=$WORKSPACE/src/store
@@ -29,20 +44,6 @@ mkdir -p $LOGS_DIR $PLOTS_DIR $PLOTS_DIR_LAST
 
 fusermount -V
 df -h
-
-# build libswift
-make -C $DIR_SWIFT
-
-# get and build LFS
-if [ ! -d "$DIR_LFS" ]; then
-    git clone git@github.com:vladum/lfs-libswift.git $DIR_LFS
-fi
-if ! $LOCAL; then
-    cd $DIR_LFS
-    git pull origin master
-    make
-    cd -
-fi
 
 # start source LFS
 $DIR_LFS/lfs $LFS_SRC_STORE -o fsname=lfssrc,realstore=$LFS_SRC_REALSTORE,big_writes &
