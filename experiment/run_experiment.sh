@@ -4,12 +4,12 @@ set +e
 set +v 
 # Machine-specific variables ---------------------------------------------------
 # Override these on Jenkins before running the script.
-: ${WORKSPACE:=.}
-: ${STAP_BIN:=stap}
-: ${STAP_RUN:=staprun}
-: ${DIR_SWIFT:=.}
-: ${DIR_LFS:=.}
-: ${LOCAL:=true}
+: ${WORKSPACE:-.}
+: ${STAP_BIN:-stap}
+: ${STAP_RUN:-staprun}
+: ${DIR_SWIFT:-.}
+: ${DIR_LFS:-.}
+: ${LOCAL:-true}
 # ------------------------------------------------------------------------------
 
 LFS_SRC_STORE=$WORKSPACE/src/store
