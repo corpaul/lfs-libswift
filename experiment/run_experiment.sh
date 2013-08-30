@@ -3,13 +3,13 @@
 set +e
 set +v 
 # Machine-specific variables ---------------------------------------------------
-# Edit these when running, for example, on Jenkins.
-WORKSPACE=.
-STAP_BIN=stap
-STAP_RUN=staprun
-DIR_SWIFT=.
-DIR_LFS=.
-LOCAL=true
+# Override these on Jenkins before running the script.
+: ${WORKSPACE:=.}
+: ${STAP_BIN:=stap}
+: ${STAP_RUN:=staprun}
+: ${DIR_SWIFT:=.}
+: ${DIR_LFS:=.}
+: ${LOCAL:=true}
 # ------------------------------------------------------------------------------
 
 LFS_SRC_STORE=$WORKSPACE/src/store
@@ -99,14 +99,12 @@ sleep 1s
 
 # start destination swift
 #$STAP_RUN -R -o $LOGS_DIR/swift.dst.stap.out -c "taskset -c 1 timeout 50s $DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" cpu_io_mem_2.ko >$LOGS_DIR/swift.dst.log 2>&1 &
-$DIR_LFS/process_guard.py -c "taskset -c 1 $DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" -t 50 -m $LOGS_DIR/dst -o $LOGS_DIR/dst
+$DIR_LFS/process_guard.py -c "taskset -c 1 $DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" -t 50 -m $LOGS_DIR/dst -o $LOGS_DIR/dst &
 SWIFT_DST_PID=$!
 
 echo "Waiting for swifts to finish (~60s)..."
 wait $SWIFT_SRC_PID
 wait $SWIFT_DST_PID
-
-#$DIR_LFS/process_guard.py -c "$DIR_SWIFT/swift -e $LFS_SRC_STORE -l 1337 -c 10000 -z 8192 --progress -D$LOGS_DIR/swift.src.debug" -c "$DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" -t 50 -m $LOGS_DIR -o $LOGS_DIR
 
 echo "---------------------------------------------------------------------------------"
 
@@ -128,7 +126,6 @@ fusermount -z -u $LFS_DST_STORE
 sleep 5s
 
 # separate logs
-
 
 # remove temps
 rm -rf $LFS_SRC_STORE
