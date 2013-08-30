@@ -1,7 +1,5 @@
 #!/bin/bash
 
-set -e
-
 # Run this before this script --------------------------------------------------
     # # build libswift
     # make -C $DIR_SWIFT
