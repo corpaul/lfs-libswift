@@ -19,15 +19,16 @@ set -e
 
 # Machine-specific variables ---------------------------------------------------
 # Override these on Jenkins before running the script.
-: ${WORKSPACE:=.}
-: ${STAP_BIN:=stap}
-: ${STAP_RUN:=staprun}
-: ${DIR_SWIFT:=.}
-: ${DIR_LFS:=.}
-: ${TIME:=30}
+[ -z $WORKSPACE ] && WORKSPACE=.
+[ -z $STAP_BIN ] && STAP_BIN=stap
+[ -z $STAP_RUN ] && STAP_RUN=staprun
+[ -z $DIR_SWIFT ] && DIR_SWIFT=.
+[ -z $DIR_LFS ] && DIR_LFS=.
+[ -z $TIME ] && TIME=30
 # ------------------------------------------------------------------------------
 
 echo "Running swift processes for $TIME seconds"
+echo "Workspace: $WORKSPACE"
 
 LFS_SRC_STORE=$WORKSPACE/src/store
 LFS_SRC_REALSTORE=$WORKSPACE/src/real
