@@ -49,6 +49,11 @@ def parse_res_usage(orig, parsed=sys.stdout):
         prev_stime = stime
         prev_dblkio = dblkio
 
+def parse_speed(inp, outp):
+    for line in inp.readlines():
+        if line.startswith("DONE") or line.startswith("done") or line.startswith("SEED"):
+            print >>outp, line[:-1]
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print "Usage:", sys.argv[0], "<logs_dir>"
@@ -58,3 +63,8 @@ if __name__ == "__main__":
     res_usage = os.path.join(logs_dir, "resource_usage.log")
     with open(res_usage, "r") as o, open(res_usage + ".parsed", "w") as p:
         parse_res_usage(o, p)
+    
+    err_log = os.path.join(logs_dir, "00000.err")
+    parsed_speed_log = os.path.join(logs_dir, "speed.parsed")
+    with open(err_log, "r") as inp, open(parsed_speed_log, "w") as outp:
+        parse_speed(inp, outp)

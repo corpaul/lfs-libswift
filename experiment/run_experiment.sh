@@ -96,7 +96,7 @@ hexdump -C -n 8192 $LFS_SRC_STORE/$HASH
 mkdir -p $LOGS_DIR/src
 mkdir -p $LOGS_DIR/dst
 
-$DIR_LFS/process_guard.py -c "taskset -c 0 $DIR_SWIFT/swift -e $LFS_SRC_STORE -l 1337 -c 10000 -z 8192 --progress -D$LOGS_DIR/swift.src.debug" -t $TIME -m $LOGS_DIR/src -o $LOGS_DIR/src &
+$DIR_LFS/process_guard.py -c "taskset -c 0 $DIR_SWIFT/swift --uprate 307200 -e $LFS_SRC_STORE -l 1337 -c 10000 -z 8192 --progress -D$LOGS_DIR/swift.src.debug" -t $TIME -m $LOGS_DIR/src -o $LOGS_DIR/src &
 SWIFT_SRC_PID=$!
 
 echo "Starting destination in 5s..."
@@ -104,7 +104,7 @@ sleep 5s
 
 # start destination swift
 #$STAP_RUN -R -o $LOGS_DIR/swift.dst.stap.out -c "taskset -c 1 timeout 50s $DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" cpu_io_mem_2.ko >$LOGS_DIR/swift.dst.log 2>&1 &
-$DIR_LFS/process_guard.py -c "taskset -c 1 $DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" -t $(($TIME-5)) -m $LOGS_DIR/dst -o $LOGS_DIR/dst &
+$DIR_LFS/process_guard.py -c "taskset -c 1 $DIR_SWIFT/swift --downrate 307200 -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" -t $(($TIME-5)) -m $LOGS_DIR/dst -o $LOGS_DIR/dst &
 SWIFT_DST_PID=$!
 
 echo "Waiting for swifts to finish (~${TIME}s)..."
@@ -147,6 +147,8 @@ $DIR_LFS/experiment/parse_logs.py $LOGS_DIR/dst
 # ------------- PLOTTING -------------
 gnuplot -e "logdir='$LOGS_DIR/src';peername='src';plotsdir='$PLOTS_DIR'" $DIR_LFS/experiment/resource_usage.gnuplot
 gnuplot -e "logdir='$LOGS_DIR/dst';peername='dst';plotsdir='$PLOTS_DIR'" $DIR_LFS/experiment/resource_usage.gnuplot
+
+gnuplot -e "logdir='$LOGS_DIR';plotsdir='$PLOTS_DIR'" $DIR_LFS/experiment/speed.gnuplot
 
 rm $PLOTS_DIR_LAST/*
 cp $PLOTS_DIR/* $PLOTS_DIR_LAST/
