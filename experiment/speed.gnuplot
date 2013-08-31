@@ -76,11 +76,6 @@ set format x "%s"
 plot logdir . "/dst/speed.parsed" using 2:(1):24 with boxes lc palette title 'send control (dst)', \
 	 logdir . "/src/speed.parsed" using 2:(0):6 with boxes lc palette title 'send control (src)'
 
-#set style data histograms
-#set style histogram rowstacked
-#set boxwidth 0.5 relative
-#set style fill solid 0.8 border -1
-
 set key right top
 set ytics
 set xtics
@@ -92,7 +87,7 @@ set ylabel 'Chunks (#)'
 
 set xlabel "Time in experiment (s)"
 
-set style fill transparent solid 0.5
+set style fill solid 0.5 border -1
 set boxwidth 0.8 relative
 
 plot logdir . "/dst/speed.parsed" using 2:($25+$26+$27+$28) with boxes t "-data", \
