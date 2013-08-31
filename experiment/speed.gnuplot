@@ -87,6 +87,7 @@ set xtics
 set size 1,0.30
 set origin 0.0,0.15
 set yrange [1:*]
+set logscale y
 set ylabel 'Chunks (#)'
 
 set xlabel "Time in experiment (s)"
