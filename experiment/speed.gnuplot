@@ -1,4 +1,4 @@
-set terminal pngcairo transparent enhanced font "arial,10" fontscale 1.0 rounded size 1000, 500
+set terminal pngcairo transparent enhanced font "arial,10" fontscale 1.0 rounded size 1000, 800
 
 set output plotsdir . "/speed.png"
 
@@ -19,7 +19,7 @@ set palette defined (\
     50  '#000000')
 set cbtics ("keep alive" 0, "ping pong" 1, "slow start" 2, "aimd" 3, "ledbat" 4, "close" 5)
 set cbtics rotate by 45
-set colorbox user vertical origin 0.78,0.28 size 0.02,0.2
+set colorbox user vertical origin 0.8,0.541 size 0.015,0.12
 set cbrange [-0.5:5.5]
 set zrange [0:5]
 set boxwidth 1 relative
@@ -27,8 +27,8 @@ set style fill transparent solid 0.65
 
 set multiplot title "Transfer Statistics (src and dst)"
 
-set size 1,0.68
-set origin 0.0,0.25
+set size 1,0.43
+set origin 0.0,0.53
 
 set ylabel "Speed (MiB/s)"
 set y2label "Hints (B)"
@@ -59,25 +59,45 @@ unset ytics
 
 set yrange [0:1]
 
-set size 1,0.05
-set origin 0.0,0.20
+set size 1,0.04
+set origin 0.0,0.49
 
 plot logdir . "/dst/speed.parsed" using 2:(0):24 with boxes lc palette title 'send control (dst)', \
 	 logdir . "/src/speed.parsed" using 2:(1):6 with boxes lc palette title 'send control (src)'
 
-set xlabel "Time in experiment (s)"
-
 unset colorbox
 
-set size 1,0.05
-set origin 0.0,0.15
+set size 1,0.04
+set origin 0.0,0.45
 
 set timefmt "%d"
 set format x "%s"
-set xtics
 
 plot logdir . "/dst/speed.parsed" using 2:(1):24 with boxes lc palette title 'send control (dst)', \
 	 logdir . "/src/speed.parsed" using 2:(0):6 with boxes lc palette title 'send control (src)'
+
+#set style data histograms
+#set style histogram rowstacked
+#set boxwidth 0.5 relative
+#set style fill solid 0.8 border -1
+
+set key right top
+set ytics
+set xtics
+set size 1,0.30
+set origin 0.0,0.15
+set yrange [1:*]
+set ylabel 'Chunks (#)'
+
+set xlabel "Time in experiment (s)"
+
+set style fill transparent solid 0.5
+set boxwidth 0.8 relative
+
+plot logdir . "/dst/speed.parsed" using 2:($25+$26+$27+$28) with boxes t "-data", \
+     '' using 2:26 w boxes t "!data (sz mis)", \
+     '' using 2:27 w boxes t "!data (dup)", \
+     '' using 2:28 w boxes t "!data (bug TODO)"
 
 unset multiplot
 
