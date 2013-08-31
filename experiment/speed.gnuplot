@@ -95,8 +95,8 @@ set style fill transparent solid 0.5
 set boxwidth 0.8 relative
 
 plot logdir . "/dst/speed.parsed" using 2:($25+$26+$27+$28) with boxes t "-data", \
-     '' using 2:26 w boxes t "!data (sz mis)", \
-     '' using 2:27 w boxes t "!data (dup)", \
+     '' using 2:($26+$27+$28) w boxes t "!data (sz mis)", \
+     '' using 2:($27+$28) w boxes t "!data (dup)", \
      '' using 2:28 w boxes t "!data (bug TODO)"
 
 unset multiplot
