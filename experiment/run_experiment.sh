@@ -97,7 +97,7 @@ hexdump -C -n 8192 $LFS_SRC_STORE/$HASH
 mkdir -p $LOGS_DIR/src
 mkdir -p $LOGS_DIR/dst
 
-$DIR_LFS/process_guard.py -c "taskset -c 0 $DIR_SWIFT/swift --uprate 307200 -e $LFS_SRC_STORE -l 1337 -c 10000 -z 8192 --progress" -t $TIME -m $LOGS_DIR/src -o $LOGS_DIR/src &
+$DIR_LFS/process_guard.py -c "taskset -c 0 $DIR_SWIFT/swift --uprate 307200 -e $LFS_SRC_STORE -l 1337 -c 10000 -z 8192 --progress -D$LOGS_DIR/swift.src.debug" -t $TIME -m $LOGS_DIR/src -o $LOGS_DIR/src &
 SWIFT_SRC_PID=$!
 
 echo "Starting destination in 5s..."
