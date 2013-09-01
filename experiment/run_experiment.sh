@@ -23,6 +23,7 @@
 [ -z $DIR_SWIFT ] && DIR_SWIFT=.
 [ -z $DIR_LFS ] && DIR_LFS=.
 [ -z $TIME ] && TIME=30
+[ -z $FILE_SIZE ] && FILE_SIZE="128GiB"
 # ------------------------------------------------------------------------------
 
 echo "Running swift processes for $TIME seconds"
@@ -60,7 +61,7 @@ LFS_DST_PID=$!
 wait $LFS_DST_PID
 
 # create data file and get precomputed metafiles
-truncate -s 128GiB $LFS_SRC_STORE/aaaaaaaa_128gb_8192
+truncate -s $FILE_SIZE $LFS_SRC_STORE/aaaaaaaa_128gb_8192
 
 hexdump -C -n 8192 $LFS_SRC_STORE/aaaaaaaa_128gb_8192
 
