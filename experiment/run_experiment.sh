@@ -104,7 +104,8 @@ sleep 5s
 
 # start destination swift
 #$STAP_RUN -R -o $LOGS_DIR/swift.dst.stap.out -c "taskset -c 1 timeout 50s $DIR_SWIFT/swift -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" cpu_io_mem_2.ko >$LOGS_DIR/swift.dst.log 2>&1 &
-$DIR_LFS/process_guard.py -c "taskset -c 1 $DIR_SWIFT/swift --downrate 307200 -o $LFS_DST_STORE -t 127.0.0.1:1337 -h $HASH -z 8192 --progress" -t $(($TIME-5)) -m $LOGS_DIR/dst -o $LOGS_DIR/dst &
+touch $LFS_DST_STORE/aaaaaaaa_128gb_8192
+$DIR_LFS/process_guard.py -c "taskset -c 1 $DIR_SWIFT/swift --downrate 307200 -o $LFS_DST_STORE -f aaaaaaaa_128gb_8192 -t 127.0.0.1:1337 -h $HASH -z 8192 --progress -D$LOGS_DIR/swift.dst.debug" -t $(($TIME-5)) -m $LOGS_DIR/dst -o $LOGS_DIR/dst &
 SWIFT_DST_PID=$!
 
 echo "Waiting for swifts to finish (~${TIME}s)..."
