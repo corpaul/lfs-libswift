@@ -65,15 +65,17 @@ truncate -s $FILE_SIZE $LFS_SRC_STORE/aaaaaaaa_128gb_8192
 
 hexdump -C -n 8192 $LFS_SRC_STORE/aaaaaaaa_128gb_8192
 
-META_ARCHIVE=$WORKSPACE/meta.tar.gz2
+META_ARCHIVE=$WORKSPACE/meta.tar.gz
 META_URL=https://dl.dropboxusercontent.com/u/18515377/Tribler/aaaaaaaa_128gb_8192.tar.gz
 
 ETAG=`awk '/.*etag:.*/ { gsub(/[ \t\n\r]+$/, "", $2); print $2 }' $META_ARCHIVE.headers | tail -1`
 wget --header="If-None-Match: $ETAG" -S --no-check-certificate -O $META_ARCHIVE $META_URL 2>&1 | tee $META_ARCHIVE.headers
 mkdir ${META_ARCHIVE}_dir || true
-tar zxvf $META_ARCHIVE -C ${META_ARCHIVE}_dir || true
+tar xzvf $META_ARCHIVE -C ${META_ARCHIVE}_dir || true
 echo "Copying meta files. Please wait."
 cp ${META_ARCHIVE}_dir/* $LFS_SRC_STORE || true
+
+hexdump -C -n 60 -s 1597400 $LFS_SRC_STORE/aaaaaaaa_128gb_8192.mhash
 
 HASH=$(cat $LFS_SRC_STORE/aaaaaaaa_128gb_8192.mbinmap | grep hash | cut -d " " -f 3)
 
