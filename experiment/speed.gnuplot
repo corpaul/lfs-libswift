@@ -1,4 +1,4 @@
-set terminal pngcairo transparent enhanced font "arial,10" fontscale 1.0 rounded size 1000, 800
+set terminal pngcairo transparent enhanced font "arial,10" fontscale 1.0 rounded size 2000, 800
 
 set output plotsdir . "/speed.png"
 
@@ -45,9 +45,9 @@ stats logdir . "/src/speed.parsed" using 2
 set xr [STATS_min - 10:STATS_max + 10]
 
 plot logdir . "/src/speed.parsed" using 2:($4/1024/1024) with lines lw 2 lt 1 axes x1y1 title 'upload speed (src)', \
-	 logdir . "/dst/speed.parsed" using 2:($21/1024/1024) with lines lw 2 lt 2 axes x1y1 title 'dwload speed (dst)', \
-	 logdir . "/dst/speed.parsed" using 2:23 with lines lw 2 lt 3 axes x1y2 title 'hints out (dst)', \
-	 logdir . "/src/speed.parsed" using 2:5 with lines lw 2 lt 4 axes x1y2 title 'hints in (src)'
+     logdir . "/dst/speed.parsed" using 2:($21/1024/1024) with lines lw 2 lt 2 axes x1y1 title 'dwload speed (dst)', \
+     logdir . "/dst/speed.parsed" using 2:23 with lines lw 2 lt 3 axes x1y2 title 'hints out (dst)', \
+     logdir . "/src/speed.parsed" using 2:5 with lines lw 2 lt 4 axes x1y2 title 'hints in (src)'
 
 unset title
 unset ylabel
@@ -63,7 +63,7 @@ set size 1,0.04
 set origin 0.0,0.49
 
 plot logdir . "/dst/speed.parsed" using 2:(0):24 with boxes lc palette title 'send control (dst)', \
-	 logdir . "/src/speed.parsed" using 2:(1):6 with boxes lc palette title 'send control (src)'
+     logdir . "/src/speed.parsed" using 2:(1):6 with boxes lc palette title 'send control (src)'
 
 unset colorbox
 
@@ -74,9 +74,9 @@ set timefmt "%d"
 set format x "%s"
 
 plot logdir . "/dst/speed.parsed" using 2:(1):24 with boxes lc palette title 'send control (dst)', \
-	 logdir . "/src/speed.parsed" using 2:(0):6 with boxes lc palette title 'send control (src)'
+     logdir . "/src/speed.parsed" using 2:(0):6 with boxes lc palette title 'send control (src)'
 
-set key right top
+set key right top horizontal
 set ytics
 set xtics
 set size 1,0.30
@@ -87,7 +87,7 @@ set ylabel 'Chunks (#)'
 
 set xlabel "Time in experiment (s)"
 
-set style fill solid 0.5 border -1
+set style fill solid 0.5 noborder
 set boxwidth 0.8 relative
 
 plot logdir . "/dst/speed.parsed" using 2:($25+$26+$27+$28) with boxes t "-data", \
